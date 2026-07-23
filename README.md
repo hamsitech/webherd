@@ -46,6 +46,14 @@ its running state, hostname, port, and https badge, plus Start/Stop buttons
 that control the background servers. Background logs live in
 `~/.config/webherd/logs/<host>.log`.
 
+Known cosmetic limitation: the services appear in System Settings > Login
+Items with their proper `webherd-*` names but a generic `exec` icon and an
+"unidentified developer" subtitle. Modern macOS only attributes an item to an
+app's name/icon when both carry a matching real signing Team ID — ad-hoc
+signatures don't qualify, and shell wrappers can't carry one at all. Signing
+with an Apple Developer identity would fix it; functionally nothing is
+affected.
+
 ## Install
 
 ```sh
