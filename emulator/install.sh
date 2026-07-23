@@ -8,7 +8,11 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bin="$HOME/.config/webherd/bin"
+bin="$HOME/Applications/webherd.app/Contents/MacOS"
+
+# Wrappers live inside webherd.app so the background-items list shows the
+# app's name and icon (path-based attribution needs no code signing).
+[ -f "$HOME/Applications/webherd.app/Contents/Info.plist" ] || bash "$here/../app/install.sh"
 
 herd_dnsmasq="/Applications/Herd.app/Contents/Resources/dnsmasq-$(uname -m | sed 's/x86_64/x86_64/;s/arm64/arm64/')"
 [ -x "$herd_dnsmasq" ] || { echo "cannot find Herd's dnsmasq at $herd_dnsmasq — is Laravel Herd installed?" >&2; exit 1; }
@@ -28,6 +32,7 @@ cat > "$bin/webherd-lo0-alias" <<'WRAP'
 exec /sbin/ifconfig lo0 alias 127.0.0.2 up
 WRAP
 chmod +x "$bin/webherd-emulator-dns" "$bin/webherd-lo0-alias"
+codesign -s - --force "$HOME/Applications/webherd.app" 2>/dev/null || true
 
 tmp="$(mktemp -d)"
 for plist in com.hamsitech.webherd.lo0-alias.plist com.hamsitech.webherd.emulator-dns.plist; do

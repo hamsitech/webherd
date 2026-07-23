@@ -7,7 +7,7 @@
   <key>AssociatedBundleIdentifiers</key><array><string>com.hamsitech.webherd</string></array>
   <key>ProgramArguments</key>
   <array>
-    <string>__HOME__/.config/webherd/bin/webherd-lo0-alias</string>
+    <string>__HOME__/Applications/webherd.app/Contents/MacOS/webherd-lo0-alias</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
