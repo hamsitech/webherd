@@ -1,27 +1,48 @@
 #!/usr/bin/env bash
 # Install the emulator DNS companion:
 #  - root LaunchDaemon that aliases 127.0.0.2 onto lo0 at boot
-#  - user LaunchAgent running a dnsmasq that answers *.test -> 10.0.2.2
+#  - root LaunchDaemon running a dnsmasq that answers *.test -> 10.0.2.2
+#    (root because binding a specific loopback address on :53 needs it;
+#    dnsmasq drops privileges after binding)
 # Boot the emulator with `-dns-server 127.0.0.2` (zd-emu does this).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bin="$HOME/.config/webherd/bin"
 
-mkdir -p "$HOME/.config/webherd/bin"
+herd_dnsmasq="/Applications/Herd.app/Contents/Resources/dnsmasq-$(uname -m | sed 's/x86_64/x86_64/;s/arm64/arm64/')"
+[ -x "$herd_dnsmasq" ] || { echo "cannot find Herd's dnsmasq at $herd_dnsmasq — is Laravel Herd installed?" >&2; exit 1; }
+
+mkdir -p "$bin"
 cp "$here/dnsmasq-emulator.conf" "$HOME/.config/webherd/dnsmasq-emulator.conf"
-cp "$here/bin/webherd-emulator-dns" "$here/bin/webherd-lo0-alias" "$HOME/.config/webherd/bin/"
-chmod +x "$HOME/.config/webherd/bin/webherd-emulator-dns" "$HOME/.config/webherd/bin/webherd-lo0-alias"
 
-sudo cp "$here/com.hamsitech.webherd.lo0-alias.plist" /Library/LaunchDaemons/
+cat > "$bin/webherd-emulator-dns" <<WRAP
+#!/bin/sh
+# Named wrapper so the macOS background-items list shows "webherd-emulator-dns".
+exec "$herd_dnsmasq" --keep-in-foreground --conf-file="$HOME/.config/webherd/dnsmasq-emulator.conf"
+WRAP
+
+cat > "$bin/webherd-lo0-alias" <<'WRAP'
+#!/bin/sh
+# Named wrapper so the macOS background-items list shows "webherd-lo0-alias".
+exec /sbin/ifconfig lo0 alias 127.0.0.2 up
+WRAP
+chmod +x "$bin/webherd-emulator-dns" "$bin/webherd-lo0-alias"
+
+tmp="$(mktemp -d)"
+for plist in com.hamsitech.webherd.lo0-alias.plist com.hamsitech.webherd.emulator-dns.plist; do
+  sed "s|__HOME__|$HOME|g" "$here/$plist" > "$tmp/$plist"
+done
+
+sudo cp "$tmp/com.hamsitech.webherd.lo0-alias.plist" /Library/LaunchDaemons/
+sudo launchctl bootout system/com.hamsitech.webherd.lo0-alias 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.hamsitech.webherd.lo0-alias.plist 2>/dev/null || true
 sudo /sbin/ifconfig lo0 alias 127.0.0.2 up
 
-# Binding a specific loopback address on port 53 needs root (only wildcard
-# low-port binds are exempt on macOS), so the dnsmasq runs as a LaunchDaemon
-# and drops privileges itself.
+# Clean up the LaunchAgent flavor from older installs.
 launchctl bootout "gui/$(id -u)/com.hamsitech.webherd.emulator-dns" 2>/dev/null || true
 rm -f "$HOME/Library/LaunchAgents/com.hamsitech.webherd.emulator-dns.plist"
-sudo cp "$here/com.hamsitech.webherd.emulator-dns.plist" /Library/LaunchDaemons/
+sudo cp "$tmp/com.hamsitech.webherd.emulator-dns.plist" /Library/LaunchDaemons/
 sudo launchctl bootout system/com.hamsitech.webherd.emulator-dns 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.hamsitech.webherd.emulator-dns.plist
 

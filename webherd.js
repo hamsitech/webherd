@@ -15,7 +15,9 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
 const HOME = os.homedir();
-const WORKSPACES = path.join(HOME, 'workspaces');
+// Project identity derives from <root>/<group>/<parent>/<name>; override the
+// root with WEBHERD_ROOT when your projects live elsewhere.
+const WORKSPACES = process.env.WEBHERD_ROOT ?? path.join(HOME, 'workspaces');
 const CONFIG_DIR = path.join(HOME, '.config', 'webherd');
 const REGISTRY_FILE = path.join(CONFIG_DIR, 'registry.json');
 const HERD_VALET_DIR = path.join(HOME, 'Library', 'Application Support', 'Herd', 'config', 'valet');
@@ -559,7 +561,7 @@ const uiInstall = () => {
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>${binDir}:/Users/kolaybi/Library/Application Support/Herd/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>${binDir}:${path.join(HOME, 'Library', 'Application Support', 'Herd', 'bin')}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

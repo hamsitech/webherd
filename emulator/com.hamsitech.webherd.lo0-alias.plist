@@ -6,7 +6,7 @@
   <string>com.hamsitech.webherd.lo0-alias</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/kolaybi/.config/webherd/bin/webherd-lo0-alias</string>
+    <string>__HOME__/.config/webherd/bin/webherd-lo0-alias</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

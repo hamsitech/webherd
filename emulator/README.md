@@ -6,7 +6,8 @@ webherd hostname is unreachable. This companion runs a second dnsmasq bound to
 `127.0.0.2:53` that answers `*.test -> 10.0.2.2`, the emulator's fixed alias
 for the host machine.
 
-Install (asks for sudo once, for the `127.0.0.2` loopback alias):
+Install (asks for sudo — the loopback alias and binding a specific loopback
+address on port 53 both need root; dnsmasq drops privileges after binding):
 
 ```sh
 ./install.sh

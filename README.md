@@ -49,10 +49,19 @@ that control the background servers. Background logs live in
 ## Install
 
 ```sh
-ln -s "$(pwd)/webherd.js" ~/bin/webherd
+git clone https://github.com/HamsiTech/webherd.git
+cd webherd
+ln -s "$(pwd)/webherd.js" /usr/local/bin/webherd   # or any directory on your PATH
+webherd ui install                                 # optional: the http://webherd.test dashboard
 ```
 
-Requires Laravel Herd (for nginx + `.test` DNS on the host) and Node 18+.
+Requirements: macOS, [Laravel Herd](https://herd.laravel.com) (provides nginx
+and `.test` DNS on the host), and Node 18+ (runs unchanged on 18/20/22/24 —
+no version-specific APIs are used).
+
+Projects are identified as `<root>/<group>/<parent>/<name>`; the root defaults
+to `~/workspaces` and can be overridden with the `WEBHERD_ROOT` environment
+variable.
 
 ## Android emulator
 

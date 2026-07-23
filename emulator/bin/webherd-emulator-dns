@@ -1,3 +1,0 @@
-#!/bin/sh
-# Named wrapper so the macOS background-items list shows "webherd-emulator-dns".
-exec "/Applications/Herd.app/Contents/Resources/dnsmasq-arm64" --keep-in-foreground --conf-file="/Users/kolaybi/.config/webherd/dnsmasq-emulator.conf"
