@@ -149,46 +149,72 @@ const proxyExists = (host) => {
   }
 };
 
-const ensureProxy = (host, port) => {
-  if (!proxyExists(host)) {
-    herd('proxy', `${host}`, `http://127.0.0.1:${port}`);
-    log(`created Herd proxy http://${host}.test -> 127.0.0.1:${port}`);
+const ensureProxy = (host, port, secure) => {
+  const confSecure = proxyExists(host) ? confIsSecure(host) : null;
+  if (confSecure === null || confSecure !== Boolean(secure)) {
+    if (confSecure !== null) herd('unproxy', host);
+    herd('proxy', host, `http://127.0.0.1:${port}`, ...(secure ? ['--secure'] : []));
+    log(`created Herd proxy ${secure ? 'https' : 'http'}://${host}.test -> 127.0.0.1:${port}`);
   }
-  rewriteUpstreamHost(host);
+  patchProxyConf(host, port);
 };
 
-// Herd's proxy template forwards the browser's Host header. Vite (and
-// friends) reject unknown hosts by default, which would force a
-// `server.allowedHosts` change into every repo — sending `localhost`
-// upstream instead keeps dev servers on their default config.
-const rewriteUpstreamHost = (host) => {
+const confFiles = (host) => {
   const dir = path.join(HERD_VALET_DIR, 'Nginx');
+  try {
+    return fs.readdirSync(dir).filter((f) => f.startsWith(`${host}.test`)).map((f) => path.join(dir, f));
+  } catch {
+    return [];
+  }
+};
+
+const confIsSecure = (host) =>
+  confFiles(host).some((conf) => fs.readFileSync(conf, 'utf8').includes(':443 ssl'));
+
+// Two fixes over Herd's proxy template:
+// 1. Send Host: localhost upstream — dev servers (Vite & co.) reject unknown
+//    hosts by default, which would force allowedHosts changes into every repo.
+// 2. On secured proxies, replace the port-80 https redirect with a real
+//    proxy so plain http keeps working (the Android emulator cannot trust
+//    the Herd CA and must stay on http).
+const patchProxyConf = (host, port) => {
+  const httpLocation = `location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_set_header   Host              localhost;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_http_version 1.1;
+        proxy_read_timeout 1800;
+        proxy_connect_timeout 1800;
+    }`;
+
   let changed = false;
-  for (const file of fs.readdirSync(dir).filter((f) => f.startsWith(`${host}.test`))) {
-    const conf = path.join(dir, file);
+  for (const conf of confFiles(host)) {
     const body = fs.readFileSync(conf, 'utf8');
-    const patched = body.replace(/proxy_set_header(\s+)Host\s+\$host;/g, 'proxy_set_header$1Host              localhost;');
+    const patched = body
+      .replace(/proxy_set_header(\s+)Host\s+\$host;/g, 'proxy_set_header$1Host              localhost;')
+      .replace(/return 301 https:\/\/\$host\$request_uri;/, httpLocation);
     if (patched !== body) {
       fs.writeFileSync(conf, patched);
       changed = true;
     }
   }
-  if (changed) {
-    herd('restart', 'nginx');
-    log('proxy now sends Host: localhost upstream (no allowedHosts needed in dev configs)');
-  }
+  if (changed) herd('restart', 'nginx');
 };
 
 const ensureEntry = (project) => {
   const registry = loadRegistry();
   let entry = registry.projects[project.key];
   if (!entry) {
-    entry = { host: allocateHost(project, registry), port: allocatePort(registry) };
+    entry = { host: allocateHost(project, registry), port: allocatePort(registry), secure: false };
     registry.projects[project.key] = entry;
     saveRegistry(registry);
     log(`registered ${project.key} as http://${entry.host}.test (port ${entry.port})`);
   }
-  ensureProxy(entry.host, entry.port);
+  ensureProxy(entry.host, entry.port, entry.secure);
 
   return entry;
 };
@@ -252,9 +278,9 @@ const list = () => {
   const keys = Object.keys(registry.projects).sort();
   if (keys.length === 0) return log('no projects registered yet');
   for (const key of keys) {
-    const { host, port } = registry.projects[key];
+    const { host, port, secure } = registry.projects[key];
     const state = isListening(port) ? 'running' : 'stopped';
-    console.log(`${key.padEnd(34)} http://${host}.test  :${port}  ${state}`);
+    console.log(`${key.padEnd(34)} ${secure ? 'https' : 'http'}://${host}.test  :${port}  ${state}`);
   }
 };
 
@@ -279,6 +305,21 @@ const rename = (newName) => {
   log(`renamed ${project.key} to http://${host}.test`);
 };
 
+const setSecure = (secure) => {
+  const project = resolveProject(process.cwd());
+  const registry = loadRegistry();
+  const entry = registry.projects[project.key];
+  if (!entry) fail(`${project.key} is not registered — run \`webherd\` first`);
+  entry.secure = secure;
+  saveRegistry(registry);
+  ensureProxy(entry.host, entry.port, secure);
+  log(
+    secure
+      ? `https://${entry.host}.test enabled (plain http stays available for the emulator)`
+      : `http://${entry.host}.test is now http-only`,
+  );
+};
+
 const remove = () => {
   const project = resolveProject(process.cwd());
   const registry = loadRegistry();
@@ -297,6 +338,7 @@ usage:
   webherd [-- <extra dev-script args>]   run the current project's dev script
   webherd list                           show registered projects
   webherd rename <new-host>              change the current project's hostname
+  webherd secure | unsecure              toggle https (http stays on for emulators)
   webherd rm                             unregister the current project
 `);
 };
@@ -314,6 +356,12 @@ switch (command) {
     break;
   case 'rename':
     rename(rest[0]);
+    break;
+  case 'secure':
+    setSecure(true);
+    break;
+  case 'unsecure':
+    setSecure(false);
     break;
   case 'rm':
     remove();

@@ -14,10 +14,14 @@ sudo cp "$here/com.hamsitech.webherd.lo0-alias.plist" /Library/LaunchDaemons/
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.hamsitech.webherd.lo0-alias.plist 2>/dev/null || true
 sudo /sbin/ifconfig lo0 alias 127.0.0.2 up
 
-mkdir -p "$HOME/Library/LaunchAgents"
-cp "$here/com.hamsitech.webherd.emulator-dns.plist" "$HOME/Library/LaunchAgents/"
+# Binding a specific loopback address on port 53 needs root (only wildcard
+# low-port binds are exempt on macOS), so the dnsmasq runs as a LaunchDaemon
+# and drops privileges itself.
 launchctl bootout "gui/$(id -u)/com.hamsitech.webherd.emulator-dns" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.hamsitech.webherd.emulator-dns.plist"
+rm -f "$HOME/Library/LaunchAgents/com.hamsitech.webherd.emulator-dns.plist"
+sudo cp "$here/com.hamsitech.webherd.emulator-dns.plist" /Library/LaunchDaemons/
+sudo launchctl bootout system/com.hamsitech.webherd.emulator-dns 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.hamsitech.webherd.emulator-dns.plist
 
 sleep 1
 dig +short +time=2 anything.test @127.0.0.2

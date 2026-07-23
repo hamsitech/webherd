@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hamsitech.webherd.emulator-dns</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/Herd.app/Contents/Resources/dnsmasq-arm64</string>
+    <string>--keep-in-foreground</string>
+    <string>--conf-file=/Users/kolaybi/.config/webherd/dnsmasq-emulator.conf</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardErrorPath</key>
+  <string>/tmp/webherd-emulator-dns.log</string>
+</dict>
+</plist>
