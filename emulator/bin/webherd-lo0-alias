@@ -1,0 +1,3 @@
+#!/bin/sh
+# Named wrapper so the macOS background-items list shows "webherd-lo0-alias".
+exec /sbin/ifconfig lo0 alias 127.0.0.2 up

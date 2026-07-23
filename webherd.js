@@ -540,6 +540,13 @@ const uiServer = () => {
 // http://webherd.test is always available.
 const uiInstall = () => {
   const binDir = path.dirname(process.execPath);
+  // Front the server with a named wrapper script so the macOS
+  // background-items list shows "webherd-ui" rather than the node
+  // binary's signer ("Node.js Foundation").
+  const wrapperDir = path.join(CONFIG_DIR, 'bin');
+  const wrapper = path.join(wrapperDir, 'webherd-ui');
+  fs.mkdirSync(wrapperDir, { recursive: true });
+  fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${__filename}" ui-server\n`, { mode: 0o755 });
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -547,9 +554,7 @@ const uiInstall = () => {
   <key>Label</key><string>com.hamsitech.webherd.ui</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${process.execPath}</string>
-    <string>${__filename}</string>
-    <string>ui-server</string>
+    <string>${wrapper}</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

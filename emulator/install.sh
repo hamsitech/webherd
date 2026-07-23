@@ -7,8 +7,10 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-mkdir -p "$HOME/.config/webherd"
+mkdir -p "$HOME/.config/webherd/bin"
 cp "$here/dnsmasq-emulator.conf" "$HOME/.config/webherd/dnsmasq-emulator.conf"
+cp "$here/bin/webherd-emulator-dns" "$here/bin/webherd-lo0-alias" "$HOME/.config/webherd/bin/"
+chmod +x "$HOME/.config/webherd/bin/webherd-emulator-dns" "$HOME/.config/webherd/bin/webherd-lo0-alias"
 
 sudo cp "$here/com.hamsitech.webherd.lo0-alias.plist" /Library/LaunchDaemons/
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.hamsitech.webherd.lo0-alias.plist 2>/dev/null || true
