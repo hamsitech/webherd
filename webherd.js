@@ -545,15 +545,15 @@ const uiInstall = () => {
   // The wrapper lives INSIDE webherd.app: Background-items attribution for
   // unsigned tools is path-based — items whose executable sits in an app
   // bundle inherit that bundle's name and icon.
-  const wrapperDir = path.join(HOME, 'Applications', 'webherd.app', 'Contents', 'MacOS');
+  const wrapperDir = path.join('/Applications', 'webherd.app', 'Contents', 'MacOS');
   const wrapper = path.join(wrapperDir, 'webherd-ui');
-  if (!fs.existsSync(path.join(HOME, 'Applications', 'webherd.app', 'Contents', 'Info.plist'))) {
+  if (!fs.existsSync('/Applications/webherd.app/Contents/Info.plist')) {
     const build = spawnSync('bash', [path.join(__dirname, 'app', 'install.sh')], { encoding: 'utf8' });
     if (build.status !== 0) fail(`app bundle build failed:\n${build.stderr || build.stdout}`);
   }
   fs.mkdirSync(wrapperDir, { recursive: true });
   fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${__filename}" ui-server\n`, { mode: 0o755 });
-  spawnSync('codesign', ['-s', '-', '--force', path.join(HOME, 'Applications', 'webherd.app')]);
+  spawnSync('codesign', ['-s', '-', '--force', '/Applications/webherd.app']);
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

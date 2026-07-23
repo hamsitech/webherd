@@ -7,7 +7,7 @@
 # the plain Herd icon without it).
 set -euo pipefail
 
-APP="$HOME/Applications/webherd.app"
+APP="/Applications/webherd.app"
 TMP="$(mktemp -d)"
 
 sips -s format png /Applications/Herd.app/Contents/Resources/AppIcon.icns \
