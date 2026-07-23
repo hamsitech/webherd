@@ -554,6 +554,7 @@ const uiInstall = () => {
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.hamsitech.webherd.ui</string>
+  <key>AssociatedBundleIdentifiers</key><array><string>com.hamsitech.webherd</string></array>
   <key>ProgramArguments</key>
   <array>
     <string>${wrapper}</string>
