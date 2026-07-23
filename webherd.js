@@ -150,9 +150,33 @@ const proxyExists = (host) => {
 };
 
 const ensureProxy = (host, port) => {
-  if (proxyExists(host)) return;
-  herd('proxy', `${host}`, `http://127.0.0.1:${port}`);
-  log(`created Herd proxy http://${host}.test -> 127.0.0.1:${port}`);
+  if (!proxyExists(host)) {
+    herd('proxy', `${host}`, `http://127.0.0.1:${port}`);
+    log(`created Herd proxy http://${host}.test -> 127.0.0.1:${port}`);
+  }
+  rewriteUpstreamHost(host);
+};
+
+// Herd's proxy template forwards the browser's Host header. Vite (and
+// friends) reject unknown hosts by default, which would force a
+// `server.allowedHosts` change into every repo — sending `localhost`
+// upstream instead keeps dev servers on their default config.
+const rewriteUpstreamHost = (host) => {
+  const dir = path.join(HERD_VALET_DIR, 'Nginx');
+  let changed = false;
+  for (const file of fs.readdirSync(dir).filter((f) => f.startsWith(`${host}.test`))) {
+    const conf = path.join(dir, file);
+    const body = fs.readFileSync(conf, 'utf8');
+    const patched = body.replace(/proxy_set_header(\s+)Host\s+\$host;/g, 'proxy_set_header$1Host              localhost;');
+    if (patched !== body) {
+      fs.writeFileSync(conf, patched);
+      changed = true;
+    }
+  }
+  if (changed) {
+    herd('restart', 'nginx');
+    log('proxy now sends Host: localhost upstream (no allowedHosts needed in dev configs)');
+  }
 };
 
 const ensureEntry = (project) => {
