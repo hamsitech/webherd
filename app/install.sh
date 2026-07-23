@@ -52,11 +52,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$TMP/webherd.icns" "$APP/Contents/Resources/webherd.icns"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cp "$here/Info.plist" "$APP/Contents/Info.plist"
-cat > "$APP/Contents/MacOS/webherd" <<'LAUNCH'
-#!/bin/sh
-exec open http://webherd.test
-LAUNCH
-chmod +x "$APP/Contents/MacOS/webherd"
+# The main executable must be a real Mach-O (a script has no architecture,
+# so Apple silicon prompts for Rosetta and background-item attribution
+# fails). Universal so Intel Macs work too.
+clang -O2 -arch arm64 -arch x86_64 "$here/launcher.c" -o "$APP/Contents/MacOS/webherd"
+for helper in "$APP/Contents/MacOS/"webherd-*; do
+  [ -f "$helper" ] && codesign -s - --force "$helper" 2>/dev/null || true
+done
 codesign -s - --force "$APP" 2>/dev/null || true
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
 echo "installed $APP"

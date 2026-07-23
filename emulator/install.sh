@@ -32,6 +32,7 @@ cat > "$bin/webherd-lo0-alias" <<'WRAP'
 exec /sbin/ifconfig lo0 alias 127.0.0.2 up
 WRAP
 chmod +x "$bin/webherd-emulator-dns" "$bin/webherd-lo0-alias"
+codesign -s - --force "$bin/webherd-emulator-dns" "$bin/webherd-lo0-alias" 2>/dev/null || true
 codesign -s - --force "/Applications/webherd.app" 2>/dev/null || true
 
 tmp="$(mktemp -d)"
