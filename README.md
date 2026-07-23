@@ -26,11 +26,25 @@ usual 3000+N behavior.
 
 | Command | Effect |
 | --- | --- |
-| `webherd` | Register (first run) and start the current project |
+| `webherd` | Register (first run) and start the current project in the foreground |
 | `webherd -- <args>` | Same, forwarding extra args to the dev script |
+| `webherd start` | Start the current project in the background (detached, logged) |
+| `webherd stop` | Stop the current project's background server |
+| `webherd logs` | Print the current project's background log path |
 | `webherd list` | Show registered projects, hostnames, ports, running state |
+| `webherd secure` / `unsecure` | Toggle https via Herd's CA (http stays on for emulators) |
 | `webherd rename <host>` | Change the current project's hostname |
 | `webherd rm` | Unregister the current project and drop its proxy |
+| `webherd ui install` | Install the dashboard (one-time) |
+
+## Dashboard
+
+`webherd ui install` (one-time) registers a LaunchAgent, so the dashboard is
+always running from then on — there is no app to launch. Open
+**http://webherd.test** in a browser: every registered project is listed with
+its running state, hostname, port, and https badge, plus Start/Stop buttons
+that control the background servers. Background logs live in
+`~/.config/webherd/logs/<host>.log`.
 
 ## Install
 
