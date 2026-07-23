@@ -553,6 +553,7 @@ const uiInstall = () => {
   }
   fs.mkdirSync(wrapperDir, { recursive: true });
   fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${__filename}" ui-server\n`, { mode: 0o755 });
+  spawnSync('codesign', ['-s', '-', '--force', wrapper]);
   spawnSync('codesign', ['-s', '-', '--force', '/Applications/webherd.app']);
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
