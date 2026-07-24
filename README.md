@@ -42,9 +42,12 @@ usual 3000+N behavior.
 `webherd ui install` (one-time) registers a LaunchAgent, so the dashboard is
 always running from then on — there is no app to launch. Open
 **http://webherd.test** in a browser: every registered project is listed with
-its running state, hostname, port, and https badge, plus Start/Stop buttons
-that control the background servers. Background logs live in
-`~/.config/webherd/logs/<host>.log`.
+its running state, path, hostname, and port, plus buttons for Start/Stop, the
+http/https scheme toggle, a log viewer (tail of the background log), rename,
+and unregister. Actions show a spinner and are serialized — rapid clicks
+can't double-fire — and failures surface their error message at the top.
+Background logs live in `~/.config/webherd/logs/<host>.log`. Icons are inlined
+from Phosphor Icons (MIT).
 
 Known cosmetic limitation: the services appear in System Settings > Login
 Items with their proper `webherd-*` names but a generic `exec` icon and an

@@ -378,25 +378,41 @@ const list = () => {
   }
 };
 
-const rename = (newName) => {
+const renameByKey = (key, newName) => {
   if (!newName) fail('usage: webherd rename <new-host>');
-  const project = resolveProject(process.cwd());
   const registry = loadRegistry();
-  const entry = registry.projects[project.key];
-  if (!entry) fail(`${project.key} is not registered — run \`webherd\` first`);
+  const entry = registry.projects[key];
+  if (!entry) fail(`${key} is not registered — run \`webherd\` first`);
 
   const host = slug(newName);
+  if (!host) fail(`"${newName}" does not slugify to a usable hostname`);
   const taken = herdClaimedHosts();
-  for (const [key, other] of Object.entries(registry.projects)) {
-    if (key !== project.key) taken.add(other.host.toLowerCase());
+  taken.delete(entry.host.toLowerCase());
+  for (const [other, otherEntry] of Object.entries(registry.projects)) {
+    if (other !== key) taken.add(otherEntry.host.toLowerCase());
   }
   if (taken.has(host)) fail(`hostname ${host}.test is already claimed`);
 
   if (proxyExists(entry.host)) herd('unproxy', entry.host);
   entry.host = host;
   saveRegistry(registry);
-  ensureProxy(host, entry.port);
-  log(`renamed ${project.key} to http://${host}.test`);
+  ensureProxy(host, entry.port, entry.secure);
+  log(`renamed ${key} to ${entry.secure ? 'https' : 'http'}://${host}.test`);
+};
+
+const removeByKey = (key) => {
+  const registry = loadRegistry();
+  const entry = registry.projects[key];
+  if (!entry) fail(`${key} is not registered`);
+  try {
+    if (isListening(entry.port)) stopProject(key);
+  } catch {
+    /* best effort */
+  }
+  if (proxyExists(entry.host)) herd('unproxy', entry.host);
+  delete registry.projects[key];
+  saveRegistry(registry);
+  log(`removed ${key} (${entry.host}.test)`);
 };
 
 const setSecureByKey = (key, secure) => {
@@ -419,16 +435,7 @@ const setSecure = (secure) => {
   setSecureByKey(resolveProject(process.cwd()).key, secure);
 };
 
-const remove = () => {
-  const project = resolveProject(process.cwd());
-  const registry = loadRegistry();
-  const entry = registry.projects[project.key];
-  if (!entry) fail(`${project.key} is not registered`);
-  if (proxyExists(entry.host)) herd('unproxy', entry.host);
-  delete registry.projects[project.key];
-  saveRegistry(registry);
-  log(`removed ${project.key} (${entry.host}.test)`);
-};
+const remove = () => removeByKey(resolveProject(process.cwd()).key);
 
 // ---- dashboard ----
 
@@ -439,8 +446,16 @@ const stateSnapshot = () => {
     .sort()
     .map((key) => {
       const { host, port, secure } = registry.projects[key];
+      const root = findProjectRoot(key);
 
-      return { key, host, port, secure: Boolean(secure), running: isListening(port) };
+      return {
+        key,
+        host,
+        port,
+        secure: Boolean(secure),
+        running: isListening(port),
+        path: root ? root.replace(HOME, '~') : '(folder not found)',
+      };
     });
 };
 
@@ -451,22 +466,48 @@ const DASHBOARD_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>webherd</title>
 <style>
-  :root { color-scheme: light dark; --fg:#1c1c1e; --bg:#f5f5f7; --card:#fff; --muted:#6e6e73; --line:#e3e3e8; }
-  @media (prefers-color-scheme: dark) { :root { --fg:#f5f5f7; --bg:#1c1c1e; --card:#2c2c2e; --muted:#98989d; --line:#3a3a3c; } }
+  :root { color-scheme: light dark; --fg:#1c1c1e; --bg:#f5f5f7; --card:#fff; --muted:#6e6e73; --line:#e3e3e8;
+          --green:#28a745; --red:#e5484d; --blue:#0a66c2; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#f5f5f7; --bg:#1c1c1e; --card:#2c2c2e; --muted:#98989d; --line:#3a3a3c;
+          --green:#30d158; --red:#ff453a; --blue:#409cff; } }
   * { box-sizing:border-box; margin:0; }
   body { font:15px/1.5 -apple-system, "SF Pro Text", sans-serif; background:var(--bg); color:var(--fg); padding:48px 24px; }
-  main { max-width:760px; margin:0 auto; }
+  main { max-width:860px; margin:0 auto; }
   h1 { font-size:22px; margin-bottom:4px; }
-  .sub { color:var(--muted); margin-bottom:28px; }
-  .row { display:flex; align-items:center; gap:14px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 18px; margin-bottom:10px; }
+  .sub { color:var(--muted); margin-bottom:20px; }
+  #err { display:none; align-items:center; gap:10px; background:color-mix(in srgb, var(--red) 12%, var(--card)); border:1px solid var(--red);
+         border-radius:10px; padding:10px 14px; margin-bottom:14px; font-size:13px; }
+  #err.show { display:flex; }
+  #err button { margin-left:auto; }
+  .row { display:flex; align-items:center; gap:14px; background:var(--card); border:1px solid var(--line);
+         border-radius:12px 12px 0 0; padding:12px 18px; }
+  .item { margin-bottom:10px; }
+  .item:not(.open) .row { border-radius:12px; }
   .dot { width:10px; height:10px; border-radius:50%; background:#a0a0a5; flex:none; }
-  .dot.on { background:#30d158; }
-  .name { font-weight:600; min-width:200px; }
+  .dot.on { background:var(--green); }
+  .id { min-width:230px; }
+  .name { font-weight:600; }
+  .path { color:var(--muted); font-size:12px; font-family:ui-monospace, monospace; }
   .host a { color:inherit; text-decoration:none; border-bottom:1px dotted var(--muted); }
-  .meta { color:var(--muted); font-size:13px; margin-left:auto; display:flex; gap:12px; align-items:center; }
-  button.badge { border:1px solid var(--line); border-radius:6px; padding:2px 8px; font-size:12px; font-weight:500; }
-  button { font:600 13px/1 -apple-system, sans-serif; border:1px solid var(--line); background:transparent; color:inherit; border-radius:8px; padding:8px 14px; cursor:pointer; }
+  .meta { color:var(--muted); font-size:13px; margin-left:auto; display:flex; gap:8px; align-items:center; }
+  button { font:600 13px/1 -apple-system, sans-serif; border:1px solid var(--line); background:transparent; color:inherit;
+           border-radius:8px; padding:7px 10px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
   button:hover { background:var(--bg); }
+  button svg { width:14px; height:14px; fill:currentColor; flex:none; }
+  .go { color:var(--green); border-color:color-mix(in srgb, var(--green) 45%, var(--line)); }
+  .halt { color:var(--red); border-color:color-mix(in srgb, var(--red) 45%, var(--line)); }
+  .scheme.on { color:var(--blue); border-color:color-mix(in srgb, var(--blue) 45%, var(--line)); }
+  .danger { color:var(--red); }
+  .icon-only { padding:7px; }
+  body.busy button { pointer-events:none; opacity:.7; }
+  button.working svg { display:none; }
+  button.working::before { content:''; width:12px; height:12px; border:2px solid currentColor; border-top-color:transparent;
+                           border-radius:50%; animation:sp .7s linear infinite; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  .logs { display:none; background:#101012; color:#d5d5da; font:11px/1.5 ui-monospace, monospace; padding:12px 16px;
+          border:1px solid var(--line); border-top:0; border-radius:0 0 12px 12px; max-height:280px; overflow:auto;
+          white-space:pre-wrap; word-break:break-all; }
+  .item.open .logs { display:block; }
   .empty { color:var(--muted); text-align:center; padding:40px; }
 </style>
 </head>
@@ -474,47 +515,130 @@ const DASHBOARD_HTML = `<!doctype html>
 <main>
   <h1>webherd</h1>
   <div class="sub">JS dev servers with Herd-style hostnames</div>
+  <div id="err"><span id="err-text"></span><button data-dismiss>Dismiss</button></div>
   <div id="list"><div class="empty">loading…</div></div>
 </main>
 <script>
+// Icons: Phosphor (phosphoricons.com, MIT), inlined as fills.
+const I = {
+  play: '<svg viewBox="0 0 256 256"><path d="M232.4 114.49 88.32 26.35a16 16 0 0 0-16.2-.3A15.86 15.86 0 0 0 64 39.87v176.26A15.94 15.94 0 0 0 80 232a16.07 16.07 0 0 0 8.36-2.35l144.04-88.14a15.81 15.81 0 0 0 0-27.02Z"/></svg>',
+  stop: '<svg viewBox="0 0 256 256"><path d="M200 36H56a20 20 0 0 0-20 20v144a20 20 0 0 0 20 20h144a20 20 0 0 0 20-20V56a20 20 0 0 0-20-20Z"/></svg>',
+  lock: '<svg viewBox="0 0 256 256"><path d="M208 80h-32V56a48 48 0 0 0-96 0v24H48a16 16 0 0 0-16 16v112a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V96a16 16 0 0 0-16-16Zm-48 0H96V56a32 32 0 0 1 64 0Z"/></svg>',
+  lockOpen: '<svg viewBox="0 0 256 256"><path d="M208 80H96V56a32 32 0 0 1 64 0 8 8 0 0 0 16 0 48 48 0 0 0-96 0v24H48a16 16 0 0 0-16 16v112a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V96a16 16 0 0 0-16-16Z"/></svg>',
+  logs: '<svg viewBox="0 0 256 256"><path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM160 51.31 188.69 80H160ZM200 216H56V40h88v48a8 8 0 0 0 8 8h48Zm-40-64a8 8 0 0 1-8 8h-48a8 8 0 0 1 0-16h48a8 8 0 0 1 8 8Zm0 32a8 8 0 0 1-8 8h-48a8 8 0 0 1 0-16h48a8 8 0 0 1 8 8Z"/></svg>',
+  pencil: '<svg viewBox="0 0 256 256"><path d="M227.31 73.37 182.63 28.68a16 16 0 0 0-22.63 0L36.69 152A15.86 15.86 0 0 0 32 163.31V208a16 16 0 0 0 16 16h44.69a15.86 15.86 0 0 0 11.31-4.69L227.31 96a16 16 0 0 0 0-22.63ZM92.69 208H48v-44.69l88-88L180.69 120ZM192 108.68 147.31 64l24-24L216 84.68Z"/></svg>',
+  trash: '<svg viewBox="0 0 256 256"><path d="M216 48h-40v-8a24 24 0 0 0-24-24h-48a24 24 0 0 0-24 24v8H40a8 8 0 0 0 0 16h8v144a16 16 0 0 0 16 16h128a16 16 0 0 0 16-16V64h8a8 8 0 0 0 0-16ZM96 40a8 8 0 0 1 8-8h48a8 8 0 0 1 8 8v8H96Zm96 168H64V64h128Zm-80-104v64a8 8 0 0 1-16 0v-64a8 8 0 0 1 16 0Zm48 0v64a8 8 0 0 1-16 0v-64a8 8 0 0 1 16 0Z"/></svg>',
+};
+
 let busy = false;
 let lastState = '';
-const refresh = async () => {
-  if (busy) return;
-  const projects = await (await fetch('/api/state')).json();
-  const state = JSON.stringify(projects);
-  if (state === lastState) return;
-  lastState = state;
+let openLogs = null;
+
+const esc = (v) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+const showError = (msg) => {
+  document.getElementById('err-text').textContent = msg;
+  document.getElementById('err').classList.add('show');
+};
+
+const render = (projects) => {
   const list = document.getElementById('list');
   if (!projects.length) { list.innerHTML = '<div class="empty">No projects yet — run webherd inside one.</div>'; return; }
   list.innerHTML = projects.map((p) => {
     const scheme = p.secure ? 'https' : 'http';
-    return '<div class="row">' +
+    const k = esc(p.key);
+    return '<div class="item' + (openLogs === p.key ? ' open' : '') + '" data-item="' + k + '">' +
+      '<div class="row">' +
       '<span class="dot ' + (p.running ? 'on' : '') + '"></span>' +
-      '<span class="name">' + p.key + '</span>' +
-      '<span class="host"><a href="' + scheme + '://' + p.host + '.test" target="_blank">' + p.host + '.test</a></span>' +
+      '<div class="id"><div class="name">' + k + '</div><div class="path">' + esc(p.path) + '</div></div>' +
+      '<span class="host"><a href="' + scheme + '://' + esc(p.host) + '.test" target="_blank">' + esc(p.host) + '.test</a></span>' +
       '<span class="meta">' +
-      '<button class="badge" data-action="toggle-secure" data-key="' + p.key + '" title="Switch to ' + (p.secure ? 'http' : 'https') + '">' + scheme + '</button>' +
       '<span>:' + p.port + '</span>' +
-      '<button data-action="' + (p.running ? 'stop' : 'start') + '" data-key="' + p.key + '">' + (p.running ? 'Stop' : 'Start') + '</button></span>' +
+      '<button class="scheme ' + (p.secure ? 'on' : '') + '" data-action="toggle-secure" data-key="' + k + '" title="Switch to ' + (p.secure ? 'http only' : 'https') + '">' + (p.secure ? I.lock : I.lockOpen) + scheme + '</button>' +
+      '<button class="icon-only" data-action="logs" data-key="' + k + '" title="Logs">' + I.logs + '</button>' +
+      '<button class="icon-only" data-action="rename" data-key="' + k + '" data-host="' + esc(p.host) + '" title="Rename hostname">' + I.pencil + '</button>' +
+      (p.running
+        ? '<button class="halt" data-action="stop" data-key="' + k + '">' + I.stop + 'Stop</button>'
+        : '<button class="go" data-action="start" data-key="' + k + '">' + I.play + 'Start</button>') +
+      '<button class="icon-only danger" data-action="rm" data-key="' + k + '" title="Unregister">' + I.trash + '</button>' +
+      '</span></div>' +
+      '<pre class="logs" data-logs="' + k + '"></pre>' +
       '</div>';
   }).join('');
+  if (openLogs) loadLogs(openLogs);
 };
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('button[data-action]');
-  if (!btn || busy) return;
-  busy = true;
-  btn.disabled = true;
+
+const refresh = async (force) => {
+  if (busy) return;
   try {
-    await fetch('/api/' + btn.dataset.action + '?key=' + encodeURIComponent(btn.dataset.key), { method: 'POST' });
+    const projects = await (await fetch('/api/state')).json();
+    const state = JSON.stringify(projects);
+    if (!force && state === lastState) return;
+    lastState = state;
+    render(projects);
+  } catch {
+    /* server briefly away (nginx restart) — next tick retries */
+  }
+};
+
+const loadLogs = async (key) => {
+  const pre = document.querySelector('[data-logs="' + CSS.escape(key) + '"]');
+  if (!pre) return;
+  const res = await fetch('/api/logs?key=' + encodeURIComponent(key));
+  pre.textContent = res.ok ? await res.text() : 'could not load logs';
+  pre.scrollTop = pre.scrollHeight;
+};
+
+const act = async (action, params) => {
+  busy = true;
+  document.body.classList.add('busy');
+  try {
+    const qs = new URLSearchParams(params).toString();
+    const res = await fetch('/api/' + action + '?' + qs, { method: 'POST' });
+    if (!res.ok) showError(await res.text());
+  } catch (e) {
+    showError(String(e));
   } finally {
     busy = false;
+    document.body.classList.remove('busy');
     lastState = '';
-    setTimeout(refresh, 800);
+    setTimeout(() => refresh(true), 600);
   }
+};
+
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-dismiss]')) {
+    document.getElementById('err').classList.remove('show');
+    return;
+  }
+  const btn = e.target.closest('button[data-action]');
+  if (!btn || busy) return;
+  const key = btn.dataset.key;
+  const action = btn.dataset.action;
+
+  if (action === 'logs') {
+    openLogs = openLogs === key ? null : key;
+    document.querySelectorAll('.item').forEach((el) => el.classList.toggle('open', el.dataset.item === openLogs));
+    if (openLogs) loadLogs(openLogs);
+    return;
+  }
+  if (action === 'rename') {
+    const next = prompt('New hostname for ' + key + ' (without .test):', btn.dataset.host);
+    if (!next || next === btn.dataset.host) return;
+    btn.classList.add('working');
+    return act('rename', { key, host: next });
+  }
+  if (action === 'rm') {
+    if (!confirm('Unregister ' + key + ' and remove its hostname?')) return;
+    btn.classList.add('working');
+    return act('rm', { key });
+  }
+  btn.classList.add('working');
+  act(action, { key });
 });
-refresh();
-setInterval(refresh, 4000);
+
+refresh(true);
+setInterval(() => refresh(false), 4000);
 </script>
 </body>
 </html>`;
@@ -534,6 +658,46 @@ const uiServer = () => {
 
       return res.end(JSON.stringify(stateSnapshot()));
     }
+    if (req.method === 'GET' && url.pathname === '/api/logs') {
+      const key = url.searchParams.get('key') ?? '';
+      const registry = loadRegistry();
+      const entry = registry.projects[key];
+      if (!entry) {
+        res.writeHead(404);
+
+        return res.end('unknown project');
+      }
+      let body = '(no log yet — start the project in background mode first)';
+      try {
+        const lines = fs.readFileSync(logFileFor(entry), 'utf8').split('\n');
+        body = lines.slice(-120).join('\n');
+      } catch {
+        /* keep placeholder */
+      }
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+
+      return res.end(body);
+    }
+    if (req.method === 'POST' && (url.pathname === '/api/rename' || url.pathname === '/api/rm')) {
+      const key = url.searchParams.get('key') ?? '';
+      const registry = loadRegistry();
+      if (!registry.projects[key]) {
+        res.writeHead(404);
+
+        return res.end('unknown project');
+      }
+      try {
+        if (url.pathname === '/api/rename') renameByKey(key, url.searchParams.get('host') ?? '');
+        else removeByKey(key);
+        res.writeHead(200);
+
+        return res.end('ok');
+      } catch (e) {
+        res.writeHead(500);
+
+        return res.end(e.message ?? String(e));
+      }
+    }
     if (req.method === 'POST' && url.pathname === '/api/toggle-secure') {
       const key = url.searchParams.get('key') ?? '';
       const registry = loadRegistry();
@@ -550,7 +714,7 @@ const uiServer = () => {
       } catch (e) {
         res.writeHead(500);
 
-        return res.end(String(e));
+        return res.end(e.message ?? String(e));
       }
     }
     if (req.method === 'POST' && (url.pathname === '/api/start' || url.pathname === '/api/stop')) {
@@ -570,7 +734,7 @@ const uiServer = () => {
       } catch (e) {
         res.writeHead(500);
 
-        return res.end(String(e));
+        return res.end(e.message ?? String(e));
       }
     }
     res.writeHead(404);
@@ -655,7 +819,7 @@ switch (command) {
     list();
     break;
   case 'rename':
-    rename(rest[0]);
+    renameByKey(resolveProject(process.cwd()).key, rest[0]);
     break;
   case 'start':
     startDetached(resolveProject(process.cwd()));
