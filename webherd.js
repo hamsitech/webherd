@@ -475,6 +475,30 @@ const removeByKey = (key) => {
   log(`removed ${key} (${entry.host}.test)`);
 };
 
+const setPortByKey = (key, rawPort) => {
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) fail(`"${rawPort}" is not a valid port (1024-65535)`);
+  const registry = loadRegistry();
+  const entry = registry.projects[key];
+  if (!entry) fail(`${key} is not registered`);
+  if (port === entry.port) return entry;
+  for (const [other, otherEntry] of Object.entries(registry.projects)) {
+    if (other !== key && otherEntry.port === port) fail(`port ${port} is already used by ${other}`);
+  }
+  if (isListening(port)) fail(`port ${port} is already in use by another process`);
+
+  const wasRunning = isListening(entry.port);
+  if (wasRunning) stopProject(key);
+  if (proxyExists(entry.host)) herd('unproxy', entry.host);
+  entry.port = port;
+  saveRegistry(registry);
+  ensureProxy(entry.host, port, entry.secure);
+  if (wasRunning) startDetached(projectFromKey(key));
+  log(`${key} moved to port ${port}`);
+
+  return entry;
+};
+
 const setSecureByKey = (key, secure) => {
   const registry = loadRegistry();
   const entry = registry.projects[key];
@@ -629,6 +653,7 @@ const I = {
   folder: '<svg viewBox="0 0 256 256"><path d="M216 72h-84.69L104 44.69A15.86 15.86 0 0 0 92.69 40H40a16 16 0 0 0-16 16v144.62A15.4 15.4 0 0 0 39.38 216h177.51A15.13 15.13 0 0 0 232 200.89V88a16 16 0 0 0-16-16Z"/></svg>',
 };
 
+const API = 'http://127.0.0.1:3098';
 let busy = false;
 let lastState = '';
 let openLogs = null;
@@ -660,7 +685,7 @@ const renderProjects = (data) => {
       '<div class="line">' +
       '<span class="host"><a href="' + scheme + '://' + esc(p.host) + '.test" target="_blank">' + esc(p.host) + '.test</a></span>' +
       '<span class="meta">' +
-      '<span>:' + p.port + '</span>' +
+      '<button data-action="set-port" data-key="' + k + '" data-port="' + p.port + '" title="Change port">:' + p.port + '</button>' +
       '<button class="scheme ' + (p.secure ? 'on' : '') + '" data-action="toggle-secure" data-key="' + k + '" title="Switch to ' + (p.secure ? 'http only' : 'https') + '">' + (p.secure ? I.lock : I.lockOpen) + scheme + '</button>' +
       '<button class="icon-only" data-action="logs" data-key="' + k + '" title="Logs">' + I.logs + '</button>' +
       '<button class="icon-only" data-action="rename" data-key="' + k + '" data-host="' + esc(p.host) + '" title="Rename hostname">' + I.pencil + '</button>' +
@@ -732,7 +757,7 @@ let lastData = null;
 const refresh = async (force) => {
   if (busy) return;
   try {
-    const data = await (await fetch('/api/state')).json();
+    const data = await (await fetch(API + '/api/state')).json();
     const state = JSON.stringify(data);
     if (!force && state === lastState) return;
     lastState = state;
@@ -746,7 +771,7 @@ const refresh = async (force) => {
 const loadLogs = async (key) => {
   const pre = document.querySelector('[data-logs="' + CSS.escape(key) + '"]');
   if (!pre) return;
-  const res = await fetch('/api/logs?key=' + encodeURIComponent(key));
+  const res = await fetch(API + '/api/logs?key=' + encodeURIComponent(key));
   pre.textContent = res.ok ? await res.text() : 'could not load logs';
   pre.scrollTop = pre.scrollHeight;
 };
@@ -756,7 +781,7 @@ const act = async (action, params) => {
   document.body.classList.add('busy');
   try {
     const qs = new URLSearchParams(params).toString();
-    const res = await fetch('/api/' + action + '?' + qs, { method: 'POST' });
+    const res = await fetch(API + '/api/' + action + '?' + qs, { method: 'POST' });
     if (!res.ok) showError(await res.text());
   } catch (e) {
     showError(String(e));
@@ -796,7 +821,7 @@ document.addEventListener('click', async (e) => {
   }
   if (action === 'suggest') {
     btn.classList.add('working');
-    suggestions = await (await fetch('/api/suggestions')).json();
+    suggestions = await (await fetch(API + '/api/suggestions')).json();
     if (lastData) render(lastData);
     return;
   }
@@ -820,6 +845,12 @@ document.addEventListener('click', async (e) => {
   if (action === 'paths-remove') {
     btn.classList.add('working');
     return act('paths-remove', { path: btn.dataset.path });
+  }
+  if (action === 'set-port') {
+    const next = prompt('New port for ' + key + ' (1024-65535):', btn.dataset.port);
+    if (!next || next === btn.dataset.port) return;
+    btn.classList.add('working');
+    return act('set-port', { key, port: next });
   }
   if (action === 'rename') {
     const next = prompt('New hostname for ' + key + ' (without .test):', btn.dataset.host);
@@ -846,6 +877,9 @@ const uiServer = () => {
   serverMode = true;
   const http = require('http');
   const server = http.createServer((req, res) => {
+    // The page is served through nginx, but API calls go directly to this
+    // port so proxy rebuilds (nginx restarts) can't sever in-flight actions.
+    res.setHeader('Access-Control-Allow-Origin', '*');
     const url = new URL(req.url, 'http://webherd.test');
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -945,6 +979,25 @@ const uiServer = () => {
       try {
         if (url.pathname === '/api/rename') renameByKey(key, url.searchParams.get('host') ?? '');
         else removeByKey(key);
+        res.writeHead(200);
+
+        return res.end('ok');
+      } catch (e) {
+        res.writeHead(500);
+
+        return res.end(e.message ?? String(e));
+      }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/set-port') {
+      const key = url.searchParams.get('key') ?? '';
+      const registry = loadRegistry();
+      if (!registry.projects[key]) {
+        res.writeHead(404);
+
+        return res.end('unknown project');
+      }
+      try {
+        setPortByKey(key, url.searchParams.get('port'));
         res.writeHead(200);
 
         return res.end('ok');
@@ -1055,6 +1108,7 @@ usage:
   webherd [-- <extra dev-script args>]   run the current project's dev script
   webherd list                           show registered projects
   webherd rename <new-host>              change the current project's hostname
+  webherd port <number>                  move the current project to another port
   webherd secure | unsecure              toggle https (http stays on for emulators)
   webherd start | stop                   run the current project in the background
   webherd logs                           show the current project's background log path
@@ -1076,6 +1130,9 @@ switch (command) {
     break;
   case 'rename':
     renameByKey(resolveProject(process.cwd()).key, rest[0]);
+    break;
+  case 'port':
+    setPortByKey(resolveProject(process.cwd()).key, rest[0]);
     break;
   case 'start':
     startDetached(resolveProject(process.cwd()));

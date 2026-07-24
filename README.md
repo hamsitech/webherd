@@ -34,6 +34,7 @@ usual 3000+N behavior.
 | `webherd list` | Show registered projects, hostnames, ports, running state |
 | `webherd secure` / `unsecure` | Toggle https via Herd's CA (http stays on for emulators) |
 | `webherd rename <host>` | Change the current project's hostname |
+| `webherd port <number>` | Move the current project to another port |
 | `webherd rm` | Unregister the current project and drop its proxy |
 | `webherd ui install` | Install the dashboard (one-time) |
 
