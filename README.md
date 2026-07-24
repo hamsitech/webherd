@@ -71,6 +71,12 @@ Projects are identified as `<root>/<group>/<parent>/<name>`; the root defaults
 to `~/workspaces` and can be overridden with the `WEBHERD_ROOT` environment
 variable.
 
+Heads-up for content blockers: uBlock Origin's "Block Outsider Intrusion into
+LAN" list (and medium/hard dynamic filtering) blocks cross-origin requests to
+`.test` hosts because they resolve to loopback — API calls fail with status 0
+and a misleading CORS message while direct navigation still works. Add `test`
+to uBlock's Trusted sites to exempt all local dev hostnames.
+
 ## Android emulator
 
 Herd's dnsmasq answers `*.test` with `127.0.0.1`, which inside an emulator is
