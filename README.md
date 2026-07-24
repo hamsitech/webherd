@@ -13,7 +13,7 @@ Run `webherd` instead of `yarn dev` inside any project under
 2. Ensures a Herd nginx proxy so `http://<name>.test` reaches the dev server.
    When the folder name exists under more than one parent (or is already
    claimed by a parked/linked Herd site), the hostname becomes
-   `<parent>-<name>.test` — so `ZDonusum/crm-web` and `KolayBi/crm-web` can
+   `<parent>-<name>.test` — so `TeamA/crm-web` and `TeamB/crm-web` can
    never collide.
 3. Launches the repo's own `dev` script with the port injected (`PORT` env plus
    `--port/--strictPort` for tools that support it) and warns if the tool
