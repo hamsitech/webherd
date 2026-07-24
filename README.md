@@ -70,9 +70,13 @@ Requirements: macOS, [Laravel Herd](https://herd.laravel.com) (provides nginx
 and `.test` DNS on the host), and Node 18+ (runs unchanged on 18/20/22/24 —
 no version-specific APIs are used).
 
-Projects are identified as `<root>/<group>/<parent>/<name>`; the root defaults
-to `~/workspaces` and can be overridden with the `WEBHERD_ROOT` environment
-variable.
+Projects live under **Webherd Paths** — directories parked Herd-style, managed
+from the dashboard (or auto-parked the first time you run `webherd` inside a
+project). Every direct subfolder of a parked path with a `dev` script shows up
+in the dashboard's Available list, where one click registers it — no CLI
+needed for first-time setup. Config lives in `~/.config/webherd/config.json`;
+the legacy `~/workspaces/<group>/<parent>/<name>` convention (root overridable
+via `WEBHERD_ROOT`) still resolves as a fallback.
 
 Heads-up for content blockers: uBlock Origin's "Block Outsider Intrusion into
 LAN" list (and medium/hard dynamic filtering) blocks cross-origin requests to

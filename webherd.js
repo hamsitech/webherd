@@ -46,6 +46,34 @@ const readJson = (file, fallback) => {
 
 const loadRegistry = () => readJson(REGISTRY_FILE, { projects: {} });
 
+const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+
+// Parked paths, Herd-style: every direct subfolder of a parked path with a
+// `dev` script is a webherd candidate. Seeded on first load from the legacy
+// ~/workspaces/<group>/<parent> convention so existing registries keep
+// resolving.
+const loadConfig = () => {
+  const existing = readJson(CONFIG_FILE, null);
+  if (existing) return existing;
+  const seeded = { paths: [] };
+  for (const group of listDirs(WORKSPACES)) {
+    for (const parent of listDirs(path.join(WORKSPACES, group))) {
+      seeded.paths.push(path.join(WORKSPACES, group, parent));
+    }
+  }
+  saveConfig(seeded);
+
+  return seeded;
+};
+
+const saveConfig = (config) => {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}
+`);
+};
+
+const parkedPaths = () => loadConfig().paths.filter((p) => fs.existsSync(p));
+
 const saveRegistry = (registry) => {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   fs.writeFileSync(REGISTRY_FILE, `${JSON.stringify(registry, null, 2)}\n`);
@@ -55,10 +83,33 @@ const saveRegistry = (registry) => {
 // projects with the same folder name under different parents never collide
 // in the registry.
 const resolveProject = (cwd) => {
+  for (const parked of parkedPaths()) {
+    const rel = path.relative(parked, cwd);
+    if (!rel.startsWith('..') && rel !== '') {
+      const name = rel.split(path.sep)[0];
+
+      return {
+        key: `${path.basename(parked)}/${name}`,
+        parent: path.basename(parked),
+        name,
+        root: path.join(parked, name),
+      };
+    }
+  }
+
+  // Not under a parked path: fall back to the <root>/<group>/<parent>/<name>
+  // convention and park the parent automatically (herd park semantics).
   const rel = path.relative(WORKSPACES, cwd);
-  if (rel.startsWith('..')) fail(`not inside ${WORKSPACES}: ${cwd}`);
+  if (rel.startsWith('..')) fail(`not inside a parked path or ${WORKSPACES}: ${cwd}`);
   const segments = rel.split(path.sep);
-  if (segments.length < 3) fail('run webherd from a project directory (~/workspaces/<group>/<parent>/<name>)');
+  if (segments.length < 3) fail('run webherd from a project directory, or park its parent via the dashboard');
+  const parentDir = path.join(WORKSPACES, segments[0], segments[1]);
+  const config = loadConfig();
+  if (!config.paths.includes(parentDir)) {
+    config.paths.push(parentDir);
+    saveConfig(config);
+    log(`parked ${parentDir}`);
+  }
 
   return {
     key: `${segments[1]}/${segments[2]}`,
@@ -72,11 +123,9 @@ const resolveProject = (cwd) => {
 // are ambiguous and always get the <parent>- prefix.
 const isAmbiguousName = (name) => {
   let count = 0;
-  for (const group of listDirs(WORKSPACES)) {
-    for (const parent of listDirs(path.join(WORKSPACES, group))) {
-      for (const project of listDirs(path.join(WORKSPACES, group, parent))) {
-        if (project.toLowerCase() === name.toLowerCase()) count += 1;
-      }
+  for (const parked of parkedPaths()) {
+    for (const project of listDirs(parked)) {
+      if (project.toLowerCase() === name.toLowerCase()) count += 1;
     }
   }
 
@@ -260,6 +309,11 @@ const buildCommand = (project, entry, extraArgs) => {
 
 const findProjectRoot = (key) => {
   const [parent, name] = key.split('/');
+  for (const parked of parkedPaths()) {
+    if (path.basename(parked) === parent && fs.existsSync(path.join(parked, name))) {
+      return path.join(parked, name);
+    }
+  }
   for (const group of listDirs(WORKSPACES)) {
     const root = path.join(WORKSPACES, group, parent, name);
     if (fs.existsSync(root)) return root;
@@ -439,10 +493,27 @@ const remove = () => removeByKey(resolveProject(process.cwd()).key);
 
 // ---- dashboard ----
 
+// Unregistered dev-script projects under the parked paths.
+const availableProjects = (registry) => {
+  const seen = new Set();
+  const out = [];
+  for (const parked of parkedPaths()) {
+    for (const name of listDirs(parked)) {
+      const key = `${path.basename(parked)}/${name}`;
+      if (seen.has(key) || registry.projects[key]) continue;
+      seen.add(key);
+      const pkg = readJson(path.join(parked, name, 'package.json'), null);
+      if (!pkg?.scripts?.dev) continue;
+      out.push({ key, path: path.join(parked, name).replace(HOME, '~') });
+    }
+  }
+
+  return out.sort((a, b) => a.key.localeCompare(b.key));
+};
+
 const stateSnapshot = () => {
   const registry = loadRegistry();
-
-  return Object.keys(registry.projects)
+  const projects = Object.keys(registry.projects)
     .sort()
     .map((key) => {
       const { host, port, secure } = registry.projects[key];
@@ -457,6 +528,12 @@ const stateSnapshot = () => {
         path: root ? root.replace(HOME, '~') : '(folder not found)',
       };
     });
+
+  return {
+    projects,
+    available: availableProjects(registry),
+    paths: loadConfig().paths.map((p) => p.replace(HOME, '~')),
+  };
 };
 
 const DASHBOARD_HTML = `<!doctype html>
@@ -509,6 +586,10 @@ const DASHBOARD_HTML = `<!doctype html>
           white-space:pre-wrap; word-break:break-all; }
   .item.open .logs { display:block; }
   .empty { color:var(--muted); text-align:center; padding:40px; }
+  h2 { font-size:15px; margin:26px 0 2px; }
+  .hint { color:var(--muted); font-size:12px; margin-bottom:10px; }
+  .muted { color:var(--muted); }
+  .picon svg { width:15px; height:15px; fill:var(--muted); display:block; }
 </style>
 </head>
 <body>
@@ -528,6 +609,9 @@ const I = {
   logs: '<svg viewBox="0 0 256 256"><path d="M213.66 82.34l-56-56A8 8 0 0 0 152 24H56a16 16 0 0 0-16 16v176a16 16 0 0 0 16 16h144a16 16 0 0 0 16-16V88a8 8 0 0 0-2.34-5.66ZM160 51.31 188.69 80H160ZM200 216H56V40h88v48a8 8 0 0 0 8 8h48Zm-40-64a8 8 0 0 1-8 8h-48a8 8 0 0 1 0-16h48a8 8 0 0 1 8 8Zm0 32a8 8 0 0 1-8 8h-48a8 8 0 0 1 0-16h48a8 8 0 0 1 8 8Z"/></svg>',
   pencil: '<svg viewBox="0 0 256 256"><path d="M227.31 73.37 182.63 28.68a16 16 0 0 0-22.63 0L36.69 152A15.86 15.86 0 0 0 32 163.31V208a16 16 0 0 0 16 16h44.69a15.86 15.86 0 0 0 11.31-4.69L227.31 96a16 16 0 0 0 0-22.63ZM92.69 208H48v-44.69l88-88L180.69 120ZM192 108.68 147.31 64l24-24L216 84.68Z"/></svg>',
   trash: '<svg viewBox="0 0 256 256"><path d="M216 48h-40v-8a24 24 0 0 0-24-24h-48a24 24 0 0 0-24 24v8H40a8 8 0 0 0 0 16h8v144a16 16 0 0 0 16 16h128a16 16 0 0 0 16-16V64h8a8 8 0 0 0 0-16ZM96 40a8 8 0 0 1 8-8h48a8 8 0 0 1 8 8v8H96Zm96 168H64V64h128Zm-80-104v64a8 8 0 0 1-16 0v-64a8 8 0 0 1 16 0Zm48 0v64a8 8 0 0 1-16 0v-64a8 8 0 0 1 16 0Z"/></svg>',
+  plus: '<svg viewBox="0 0 256 256"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg>',
+  minus: '<svg viewBox="0 0 256 256"><path d="M224 128a8 8 0 0 1-8 8H40a8 8 0 0 1 0-16h176a8 8 0 0 1 8 8Z"/></svg>',
+  folder: '<svg viewBox="0 0 256 256"><path d="M216 72h-84.69L104 44.69A15.86 15.86 0 0 0 92.69 40H40a16 16 0 0 0-16 16v144.62A15.4 15.4 0 0 0 39.38 216h177.51A15.13 15.13 0 0 0 232 200.89V88a16 16 0 0 0-16-16Z"/></svg>',
 };
 
 let busy = false;
@@ -541,10 +625,12 @@ const showError = (msg) => {
   document.getElementById('err').classList.add('show');
 };
 
-const render = (projects) => {
+const render = (data) => {
+  const projects = data.projects;
   const list = document.getElementById('list');
-  if (!projects.length) { list.innerHTML = '<div class="empty">No projects yet — run webherd inside one.</div>'; return; }
-  list.innerHTML = projects.map((p) => {
+  let html = '';
+  if (!projects.length) html += '<div class="empty">No projects yet — add one from the list below.</div>';
+  html += projects.map((p) => {
     const scheme = p.secure ? 'https' : 'http';
     const k = esc(p.key);
     return '<div class="item' + (openLogs === p.key ? ' open' : '') + '" data-item="' + k + '">' +
@@ -569,6 +655,31 @@ const render = (projects) => {
       '<pre class="logs" data-logs="' + k + '"></pre>' +
       '</div>';
   }).join('');
+
+  if (data.available.length) {
+    html += '<h2>Available</h2><div class="hint">Projects with a dev script under the parked paths — add one to give it a hostname.</div>';
+    html += data.available.map((p) => {
+      const k = esc(p.key);
+      return '<div class="item"><div class="row"><div class="line">' +
+        '<span class="dot"></span>' +
+        '<span class="name muted">' + k + '</span>' +
+        '<span class="path">' + esc(p.path) + '</span>' +
+        '<button class="go" style="margin-left:12px" data-action="register" data-key="' + k + '">' + I.plus + 'Add</button>' +
+        '</div></div></div>';
+    }).join('');
+  }
+
+  html += '<h2>Webherd Paths</h2><div class="hint">Direct subfolders of these directories are offered above.</div>';
+  html += data.paths.map((p) => {
+    const q = esc(p);
+    return '<div class="item"><div class="row"><div class="line">' +
+      '<span class="picon">' + I.folder + '</span><span class="path" style="margin-left:0">' + q + '</span>' +
+      '<button class="icon-only danger" style="margin-left:auto" data-action="paths-remove" data-path="' + q + '" title="Remove path">' + I.minus + '</button>' +
+      '</div></div></div>';
+  }).join('');
+  html += '<button data-action="paths-add" style="margin-top:2px">' + I.plus + 'Add path</button>';
+
+  list.innerHTML = html;
   if (openLogs) loadLogs(openLogs);
 };
 
@@ -626,6 +737,20 @@ document.addEventListener('click', async (e) => {
     if (openLogs) loadLogs(openLogs);
     return;
   }
+  if (action === 'register') {
+    btn.classList.add('working');
+    return act('register', { key });
+  }
+  if (action === 'paths-add') {
+    const p = prompt('Directory to park (its subfolders become projects):', '~/workspaces/');
+    if (!p) return;
+    btn.classList.add('working');
+    return act('paths-add', { path: p });
+  }
+  if (action === 'paths-remove') {
+    btn.classList.add('working');
+    return act('paths-remove', { path: btn.dataset.path });
+  }
   if (action === 'rename') {
     const next = prompt('New hostname for ' + key + ' (without .test):', btn.dataset.host);
     if (!next || next === btn.dataset.host) return;
@@ -681,6 +806,43 @@ const uiServer = () => {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
 
       return res.end(body);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/register') {
+      const key = url.searchParams.get('key') ?? '';
+      try {
+        const root = findProjectRoot(key);
+        if (!root) throw new Error(`cannot find ${key} under the parked paths`);
+        const [parent, name] = key.split('/');
+        ensureEntry({ key, parent, name, root });
+        res.writeHead(200);
+
+        return res.end('ok');
+      } catch (e) {
+        res.writeHead(500);
+
+        return res.end(e.message ?? String(e));
+      }
+    }
+    if (req.method === 'POST' && (url.pathname === '/api/paths-add' || url.pathname === '/api/paths-remove')) {
+      const raw = (url.searchParams.get('path') ?? '').replace(/^~(?=\/|$)/, HOME);
+      const target = path.resolve(raw);
+      try {
+        const config = loadConfig();
+        if (url.pathname === '/api/paths-add') {
+          if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) throw new Error(`${target} is not a directory`);
+          if (!config.paths.includes(target)) config.paths.push(target);
+        } else {
+          config.paths = config.paths.filter((p) => p !== target);
+        }
+        saveConfig(config);
+        res.writeHead(200);
+
+        return res.end('ok');
+      } catch (e) {
+        res.writeHead(500);
+
+        return res.end(e.message ?? String(e));
+      }
     }
     if (req.method === 'POST' && (url.pathname === '/api/rename' || url.pathname === '/api/rm')) {
       const key = url.searchParams.get('key') ?? '';
