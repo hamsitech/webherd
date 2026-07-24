@@ -472,22 +472,22 @@ const DASHBOARD_HTML = `<!doctype html>
           --green:#30d158; --red:#ff453a; --blue:#409cff; } }
   * { box-sizing:border-box; margin:0; }
   body { font:15px/1.5 -apple-system, "SF Pro Text", sans-serif; background:var(--bg); color:var(--fg); padding:48px 24px; }
-  main { max-width:860px; margin:0 auto; }
+  main { max-width:960px; margin:0 auto; }
   h1 { font-size:22px; margin-bottom:4px; }
   .sub { color:var(--muted); margin-bottom:20px; }
   #err { display:none; align-items:center; gap:10px; background:color-mix(in srgb, var(--red) 12%, var(--card)); border:1px solid var(--red);
          border-radius:10px; padding:10px 14px; margin-bottom:14px; font-size:13px; }
   #err.show { display:flex; }
   #err button { margin-left:auto; }
-  .row { display:flex; align-items:center; gap:14px; background:var(--card); border:1px solid var(--line);
+  .row { display:flex; flex-direction:column; gap:10px; background:var(--card); border:1px solid var(--line);
          border-radius:12px 12px 0 0; padding:12px 18px; }
+  .line { display:flex; align-items:center; gap:12px; }
   .item { margin-bottom:10px; }
   .item:not(.open) .row { border-radius:12px; }
   .dot { width:10px; height:10px; border-radius:50%; background:#a0a0a5; flex:none; }
   .dot.on { background:var(--green); }
-  .id { min-width:230px; }
   .name { font-weight:600; }
-  .path { color:var(--muted); font-size:12px; font-family:ui-monospace, monospace; }
+  .path { color:var(--muted); font-size:12px; font-family:ui-monospace, monospace; margin-left:auto; }
   .host a { color:inherit; text-decoration:none; border-bottom:1px dotted var(--muted); }
   .meta { color:var(--muted); font-size:13px; margin-left:auto; display:flex; gap:8px; align-items:center; }
   button { font:600 13px/1 -apple-system, sans-serif; border:1px solid var(--line); background:transparent; color:inherit;
@@ -549,8 +549,12 @@ const render = (projects) => {
     const k = esc(p.key);
     return '<div class="item' + (openLogs === p.key ? ' open' : '') + '" data-item="' + k + '">' +
       '<div class="row">' +
+      '<div class="line">' +
       '<span class="dot ' + (p.running ? 'on' : '') + '"></span>' +
-      '<div class="id"><div class="name">' + k + '</div><div class="path">' + esc(p.path) + '</div></div>' +
+      '<span class="name">' + k + '</span>' +
+      '<span class="path">' + esc(p.path) + '</span>' +
+      '</div>' +
+      '<div class="line">' +
       '<span class="host"><a href="' + scheme + '://' + esc(p.host) + '.test" target="_blank">' + esc(p.host) + '.test</a></span>' +
       '<span class="meta">' +
       '<span>:' + p.port + '</span>' +
@@ -561,7 +565,7 @@ const render = (projects) => {
         ? '<button class="halt" data-action="stop" data-key="' + k + '">' + I.stop + 'Stop</button>'
         : '<button class="go" data-action="start" data-key="' + k + '">' + I.play + 'Start</button>') +
       '<button class="icon-only danger" data-action="rm" data-key="' + k + '" title="Unregister">' + I.trash + '</button>' +
-      '</span></div>' +
+      '</span></div></div>' +
       '<pre class="logs" data-logs="' + k + '"></pre>' +
       '</div>';
   }).join('');
