@@ -279,9 +279,9 @@ const ensureEntry = (project) => {
 // Tool-specific flags; every tool also receives PORT/HOST in the env. The
 // host is pinned to 127.0.0.1 because nginx proxies there — tools that bind
 // IPv6-only localhost (Vite does) would 502 behind the proxy otherwise.
-const portArgs = (project, port) => {
+const portArgs = (project, port, script) => {
   const pkg = readJson(path.join(project.root, 'package.json'), {});
-  const devScript = pkg.scripts?.dev ?? '';
+  const devScript = pkg.scripts?.[script] ?? '';
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
   if (deps.vite || /\bvite\b/.test(devScript))
     return ['--port', String(port), '--strictPort', '--host', '127.0.0.1'];
@@ -299,10 +299,16 @@ const packageManager = (root) => {
   return 'npm';
 };
 
+const SCRIPT_CANDIDATES = ['dev', 'start', 'serve'];
+
+const scriptFor = (pkg) => SCRIPT_CANDIDATES.find((name) => pkg?.scripts?.[name]) ?? null;
+
 const buildCommand = (project, entry, extraArgs) => {
+  const pkg = readJson(path.join(project.root, 'package.json'), {});
+  const script = scriptFor(pkg);
   const pm = packageManager(project.root);
-  const args = pm === 'npm' ? ['run', 'dev', '--'] : ['dev'];
-  args.push(...portArgs(project, entry.port), ...extraArgs);
+  const args = pm === 'npm' ? ['run', script, '--'] : [script];
+  args.push(...portArgs(project, entry.port, script), ...extraArgs);
 
   return { pm, args };
 };
@@ -336,7 +342,7 @@ const logFileFor = (entry) => path.join(LOGS_DIR, `${entry.host}.log`);
 // own process group with output going to a per-project log file.
 const startDetached = (project) => {
   const pkg = readJson(path.join(project.root, 'package.json'), {});
-  if (!pkg.scripts?.dev) fail(`${project.key} has no "dev" script`);
+  if (!scriptFor(pkg)) fail(`${project.key} has no dev/start/serve script`);
   const entry = ensureEntry(project);
   if (isListening(entry.port)) {
     log(`${entry.host}.test is already running on :${entry.port}`);
@@ -395,7 +401,7 @@ const stopProject = (key) => {
 const run = (extraArgs) => {
   const project = resolveProject(process.cwd());
   const pkg = readJson(path.join(project.root, 'package.json'), {});
-  if (!pkg.scripts?.dev) fail(`${project.key} has no "dev" script`);
+  if (!scriptFor(pkg)) fail(`${project.key} has no dev/start/serve script`);
 
   const entry = ensureEntry(project);
   if (isListening(entry.port)) fail(`port ${entry.port} is already in use — is ${entry.host}.test already running?`);
@@ -503,7 +509,7 @@ const availableProjects = (registry) => {
       if (seen.has(key) || registry.projects[key]) continue;
       seen.add(key);
       const pkg = readJson(path.join(parked, name, 'package.json'), null);
-      if (!pkg?.scripts?.dev) continue;
+      if (!scriptFor(pkg)) continue;
       out.push({ key, path: path.join(parked, name).replace(HOME, '~') });
     }
   }
@@ -586,7 +592,11 @@ const DASHBOARD_HTML = `<!doctype html>
           white-space:pre-wrap; word-break:break-all; }
   .item.open .logs { display:block; }
   .empty { color:var(--muted); text-align:center; padding:40px; }
-  h2 { font-size:15px; margin:26px 0 2px; }
+  #tabs { display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--line); }
+  .tab { border:0; border-bottom:2px solid transparent; border-radius:0; padding:8px 14px; color:var(--muted); font-weight:600; }
+  .tab:hover { background:transparent; color:var(--fg); }
+  .tab.active { color:var(--fg); border-bottom-color:var(--fg); }
+  .tab span { margin-left:6px; font-size:11px; background:var(--line); border-radius:8px; padding:1px 7px; }
   .hint { color:var(--muted); font-size:12px; margin-bottom:10px; }
   .muted { color:var(--muted); }
   .picon svg { width:15px; height:15px; fill:var(--muted); display:block; }
@@ -596,6 +606,11 @@ const DASHBOARD_HTML = `<!doctype html>
 <main>
   <h1>webherd</h1>
   <div class="sub">JS dev servers with Herd-style hostnames</div>
+  <nav id="tabs">
+    <button data-tab="projects" class="tab active">Projects</button>
+    <button data-tab="available" class="tab">Available<span id="avail-count"></span></button>
+    <button data-tab="paths" class="tab">Paths</button>
+  </nav>
   <div id="err"><span id="err-text"></span><button data-dismiss>Dismiss</button></div>
   <div id="list"><div class="empty">loading…</div></div>
 </main>
@@ -626,11 +641,12 @@ const showError = (msg) => {
   document.getElementById('err').classList.add('show');
 };
 
-const render = (data) => {
+let tab = 'projects';
+
+const renderProjects = (data) => {
   const projects = data.projects;
-  const list = document.getElementById('list');
   let html = '';
-  if (!projects.length) html += '<div class="empty">No projects yet — add one from the list below.</div>';
+  if (!projects.length) html += '<div class="empty">No projects yet — register one from the Available tab.</div>';
   html += projects.map((p) => {
     const scheme = p.secure ? 'https' : 'http';
     const k = esc(p.key);
@@ -657,20 +673,27 @@ const render = (data) => {
       '</div>';
   }).join('');
 
-  if (data.available.length) {
-    html += '<h2>Available</h2><div class="hint">Projects with a dev script under the parked paths — add one to give it a hostname.</div>';
-    html += data.available.map((p) => {
-      const k = esc(p.key);
-      return '<div class="item"><div class="row"><div class="line">' +
-        '<span class="dot"></span>' +
-        '<span class="name muted">' + k + '</span>' +
-        '<span class="path">' + esc(p.path) + '</span>' +
-        '<button class="go" style="margin-left:12px" data-action="register" data-key="' + k + '">' + I.plus + 'Add</button>' +
-        '</div></div></div>';
-    }).join('');
-  }
+  return html;
+};
 
-  html += '<h2>Webherd Paths</h2><div class="hint">Direct subfolders of these directories are offered above.</div>';
+const renderAvailable = (data) => {
+  if (!data.available.length) return '<div class="empty">Nothing to register — every runnable project under the parked paths already has a hostname.</div>';
+  let html = '<div class="hint">Projects with a dev/start/serve script under the parked paths — add one to give it a hostname.</div>';
+  html += data.available.map((p) => {
+    const k = esc(p.key);
+    return '<div class="item"><div class="row"><div class="line">' +
+      '<span class="dot"></span>' +
+      '<span class="name muted">' + k + '</span>' +
+      '<span class="path">' + esc(p.path) + '</span>' +
+      '<button class="go" style="margin-left:12px" data-action="register" data-key="' + k + '">' + I.plus + 'Add</button>' +
+      '</div></div></div>';
+  }).join('');
+
+  return html;
+};
+
+const renderPaths = (data) => {
+  let html = '<div class="hint">Direct subfolders of these directories are offered in the Available tab.</div>';
   html += data.paths.map((p) => {
     const q = esc(p);
     return '<div class="item"><div class="row"><div class="line">' +
@@ -680,7 +703,7 @@ const render = (data) => {
   }).join('');
   html += '<button data-action="suggest" style="margin-top:2px">' + I.plus + 'Add path</button>';
   if (suggestions) {
-    html += '<div class="hint" style="margin-top:12px">Folders with dev-script projects — pick one, or use a custom path.</div>';
+    html += '<div class="hint" style="margin-top:12px">Folders with runnable projects — pick one, or use a custom path.</div>';
     html += suggestions.map((sg) => {
       const q = esc(sg.path);
       return '<div class="item"><div class="row"><div class="line">' +
@@ -689,13 +712,20 @@ const render = (data) => {
         '<button class="go icon-only" style="margin-left:auto" data-action="paths-add" data-path="' + q + '" title="Park this path">' + I.plus + '</button>' +
         '</div></div></div>';
     }).join('');
-    if (!suggestions.length) html += '<div class="hint">No unparked folders with dev-script projects found.</div>';
+    if (!suggestions.length) html += '<div class="hint">No unparked folders with runnable projects found.</div>';
     html += '<button data-action="paths-add-custom">' + I.pencil + 'Custom path…</button> ' +
             '<button data-action="suggest-close">Close</button>';
   }
 
-  list.innerHTML = html;
-  if (openLogs) loadLogs(openLogs);
+  return html;
+};
+
+const render = (data) => {
+  document.getElementById('avail-count').textContent = data.available.length || '';
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+  const list = document.getElementById('list');
+  list.innerHTML = tab === 'projects' ? renderProjects(data) : tab === 'available' ? renderAvailable(data) : renderPaths(data);
+  if (tab === 'projects' && openLogs) loadLogs(openLogs);
 };
 
 let lastData = null;
@@ -739,6 +769,12 @@ const act = async (action, params) => {
 };
 
 document.addEventListener('click', async (e) => {
+  const tabBtn = e.target.closest('.tab');
+  if (tabBtn) {
+    tab = tabBtn.dataset.tab;
+    if (lastData) render(lastData);
+    return;
+  }
   if (e.target.closest('[data-dismiss]')) {
     document.getElementById('err').classList.remove('show');
     return;
@@ -851,7 +887,7 @@ const uiServer = () => {
           let projects = 0;
           for (const name of listDirs(dir)) {
             const pkg = readJson(path.join(dir, name, 'package.json'), null);
-            if (pkg?.scripts?.dev) projects += 1;
+            if (scriptFor(pkg)) projects += 1;
           }
           if (projects > 0) out.push({ path: dir.replace(HOME, '~'), projects });
         }
