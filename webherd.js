@@ -29,7 +29,9 @@ const UI_PORT = 3098;
 const UI_PLIST = path.join(HOME, 'Library', 'LaunchAgents', 'com.hamsitech.webherd.ui.plist');
 
 const log = (msg) => console.log(`[webherd] ${msg}`);
+let serverMode = false;
 const fail = (msg) => {
+  if (serverMode) throw new Error(msg);
   console.error(`[webherd] ${msg}`);
   process.exit(1);
 };
@@ -397,11 +399,10 @@ const rename = (newName) => {
   log(`renamed ${project.key} to http://${host}.test`);
 };
 
-const setSecure = (secure) => {
-  const project = resolveProject(process.cwd());
+const setSecureByKey = (key, secure) => {
   const registry = loadRegistry();
-  const entry = registry.projects[project.key];
-  if (!entry) fail(`${project.key} is not registered — run \`webherd\` first`);
+  const entry = registry.projects[key];
+  if (!entry) fail(`${key} is not registered — run \`webherd\` first`);
   entry.secure = secure;
   saveRegistry(registry);
   ensureProxy(entry.host, entry.port, secure);
@@ -410,6 +411,12 @@ const setSecure = (secure) => {
       ? `https://${entry.host}.test enabled (plain http stays available for the emulator)`
       : `http://${entry.host}.test is now http-only`,
   );
+
+  return entry;
+};
+
+const setSecure = (secure) => {
+  setSecureByKey(resolveProject(process.cwd()).key, secure);
 };
 
 const remove = () => {
@@ -457,7 +464,7 @@ const DASHBOARD_HTML = `<!doctype html>
   .name { font-weight:600; min-width:200px; }
   .host a { color:inherit; text-decoration:none; border-bottom:1px dotted var(--muted); }
   .meta { color:var(--muted); font-size:13px; margin-left:auto; display:flex; gap:12px; align-items:center; }
-  .badge { border:1px solid var(--line); border-radius:6px; padding:1px 7px; font-size:12px; }
+  button.badge { border:1px solid var(--line); border-radius:6px; padding:2px 8px; font-size:12px; font-weight:500; }
   button { font:600 13px/1 -apple-system, sans-serif; border:1px solid var(--line); background:transparent; color:inherit; border-radius:8px; padding:8px 14px; cursor:pointer; }
   button:hover { background:var(--bg); }
   .empty { color:var(--muted); text-align:center; padding:40px; }
@@ -470,8 +477,14 @@ const DASHBOARD_HTML = `<!doctype html>
   <div id="list"><div class="empty">loading…</div></div>
 </main>
 <script>
+let busy = false;
+let lastState = '';
 const refresh = async () => {
+  if (busy) return;
   const projects = await (await fetch('/api/state')).json();
+  const state = JSON.stringify(projects);
+  if (state === lastState) return;
+  lastState = state;
   const list = document.getElementById('list');
   if (!projects.length) { list.innerHTML = '<div class="empty">No projects yet — run webherd inside one.</div>'; return; }
   list.innerHTML = projects.map((p) => {
@@ -480,17 +493,25 @@ const refresh = async () => {
       '<span class="dot ' + (p.running ? 'on' : '') + '"></span>' +
       '<span class="name">' + p.key + '</span>' +
       '<span class="host"><a href="' + scheme + '://' + p.host + '.test" target="_blank">' + p.host + '.test</a></span>' +
-      '<span class="meta">' + (p.secure ? '<span class="badge">https</span>' : '') + '<span>:' + p.port + '</span>' +
+      '<span class="meta">' +
+      '<button class="badge" data-action="toggle-secure" data-key="' + p.key + '" title="Switch to ' + (p.secure ? 'http' : 'https') + '">' + scheme + '</button>' +
+      '<span>:' + p.port + '</span>' +
       '<button data-action="' + (p.running ? 'stop' : 'start') + '" data-key="' + p.key + '">' + (p.running ? 'Stop' : 'Start') + '</button></span>' +
       '</div>';
   }).join('');
 };
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
+  if (!btn || busy) return;
+  busy = true;
   btn.disabled = true;
-  await fetch('/api/' + btn.dataset.action + '?key=' + encodeURIComponent(btn.dataset.key), { method: 'POST' });
-  setTimeout(refresh, 800);
+  try {
+    await fetch('/api/' + btn.dataset.action + '?key=' + encodeURIComponent(btn.dataset.key), { method: 'POST' });
+  } finally {
+    busy = false;
+    lastState = '';
+    setTimeout(refresh, 800);
+  }
 });
 refresh();
 setInterval(refresh, 4000);
@@ -499,6 +520,7 @@ setInterval(refresh, 4000);
 </html>`;
 
 const uiServer = () => {
+  serverMode = true;
   const http = require('http');
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://webherd.test');
@@ -511,6 +533,25 @@ const uiServer = () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
 
       return res.end(JSON.stringify(stateSnapshot()));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/toggle-secure') {
+      const key = url.searchParams.get('key') ?? '';
+      const registry = loadRegistry();
+      if (!registry.projects[key]) {
+        res.writeHead(404);
+
+        return res.end('unknown project');
+      }
+      try {
+        setSecureByKey(key, !registry.projects[key].secure);
+        res.writeHead(200);
+
+        return res.end('ok');
+      } catch (e) {
+        res.writeHead(500);
+
+        return res.end(String(e));
+      }
     }
     if (req.method === 'POST' && (url.pathname === '/api/start' || url.pathname === '/api/stop')) {
       const key = url.searchParams.get('key') ?? '';
