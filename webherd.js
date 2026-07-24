@@ -617,6 +617,7 @@ const I = {
 let busy = false;
 let lastState = '';
 let openLogs = null;
+let suggestions = null;
 
 const esc = (v) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
@@ -677,20 +678,36 @@ const render = (data) => {
       '<button class="icon-only danger" style="margin-left:auto" data-action="paths-remove" data-path="' + q + '" title="Remove path">' + I.minus + '</button>' +
       '</div></div></div>';
   }).join('');
-  html += '<button data-action="paths-add" style="margin-top:2px">' + I.plus + 'Add path</button>';
+  html += '<button data-action="suggest" style="margin-top:2px">' + I.plus + 'Add path</button>';
+  if (suggestions) {
+    html += '<div class="hint" style="margin-top:12px">Folders with dev-script projects — pick one, or use a custom path.</div>';
+    html += suggestions.map((sg) => {
+      const q = esc(sg.path);
+      return '<div class="item"><div class="row"><div class="line">' +
+        '<span class="picon">' + I.folder + '</span><span class="path" style="margin-left:0">' + q + '</span>' +
+        '<span class="muted" style="font-size:12px">' + sg.projects + ' project' + (sg.projects > 1 ? 's' : '') + '</span>' +
+        '<button class="go icon-only" style="margin-left:auto" data-action="paths-add" data-path="' + q + '" title="Park this path">' + I.plus + '</button>' +
+        '</div></div></div>';
+    }).join('');
+    if (!suggestions.length) html += '<div class="hint">No unparked folders with dev-script projects found.</div>';
+    html += '<button data-action="paths-add-custom">' + I.pencil + 'Custom path…</button> ' +
+            '<button data-action="suggest-close">Close</button>';
+  }
 
   list.innerHTML = html;
   if (openLogs) loadLogs(openLogs);
 };
 
+let lastData = null;
 const refresh = async (force) => {
   if (busy) return;
   try {
-    const projects = await (await fetch('/api/state')).json();
-    const state = JSON.stringify(projects);
+    const data = await (await fetch('/api/state')).json();
+    const state = JSON.stringify(data);
     if (!force && state === lastState) return;
     lastState = state;
-    render(projects);
+    lastData = data;
+    render(data);
   } catch {
     /* server briefly away (nginx restart) — next tick retries */
   }
@@ -741,10 +758,27 @@ document.addEventListener('click', async (e) => {
     btn.classList.add('working');
     return act('register', { key });
   }
+  if (action === 'suggest') {
+    btn.classList.add('working');
+    suggestions = await (await fetch('/api/suggestions')).json();
+    if (lastData) render(lastData);
+    return;
+  }
+  if (action === 'suggest-close') {
+    suggestions = null;
+    if (lastData) render(lastData);
+    return;
+  }
   if (action === 'paths-add') {
+    btn.classList.add('working');
+    suggestions = null;
+    return act('paths-add', { path: btn.dataset.path });
+  }
+  if (action === 'paths-add-custom') {
     const p = prompt('Directory to park (its subfolders become projects):', '~/workspaces/');
     if (!p) return;
     btn.classList.add('working');
+    suggestions = null;
     return act('paths-add', { path: p });
   }
   if (action === 'paths-remove') {
@@ -806,6 +840,26 @@ const uiServer = () => {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
 
       return res.end(body);
+    }
+    if (req.method === 'GET' && url.pathname === '/api/suggestions') {
+      const parked = new Set(parkedPaths());
+      const out = [];
+      for (const group of listDirs(WORKSPACES)) {
+        for (const parent of listDirs(path.join(WORKSPACES, group))) {
+          const dir = path.join(WORKSPACES, group, parent);
+          if (parked.has(dir)) continue;
+          let projects = 0;
+          for (const name of listDirs(dir)) {
+            const pkg = readJson(path.join(dir, name, 'package.json'), null);
+            if (pkg?.scripts?.dev) projects += 1;
+          }
+          if (projects > 0) out.push({ path: dir.replace(HOME, '~'), projects });
+        }
+      }
+      out.sort((a, b) => b.projects - a.projects || a.path.localeCompare(b.path));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+
+      return res.end(JSON.stringify(out));
     }
     if (req.method === 'POST' && url.pathname === '/api/register') {
       const key = url.searchParams.get('key') ?? '';
