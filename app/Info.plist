@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleIdentifier</key><string>com.hamsitech.webherd</string>
+  <key>CFBundleIdentifier</key><string>tech.hamsi.webherd</string>
   <key>CFBundleName</key><string>webherd</string>
   <key>CFBundleDisplayName</key><string>webherd</string>
   <key>CFBundleExecutable</key><string>webherd</string>

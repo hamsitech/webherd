@@ -38,7 +38,7 @@ no version-specific APIs are used).
 The dashboard runs as a LaunchAgent from then on — nothing to launch, just
 open **http://webherd.test**. The code executes from this checkout, so after a
 `git pull` restart it with
-`launchctl kickstart -k gui/$UID/com.hamsitech.webherd.ui`.
+`launchctl kickstart -k gui/$UID/tech.hamsi.webherd.ui`.
 
 ## Dashboard
 

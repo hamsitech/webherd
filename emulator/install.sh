@@ -36,21 +36,27 @@ codesign -s - --force "$bin/webherd-emulator-dns" "$bin/webherd-lo0-alias" 2>/de
 codesign -s - --force "/Applications/webherd.app" 2>/dev/null || true
 
 tmp="$(mktemp -d)"
-for plist in com.hamsitech.webherd.lo0-alias.plist com.hamsitech.webherd.emulator-dns.plist; do
+for plist in tech.hamsi.webherd.lo0-alias.plist tech.hamsi.webherd.emulator-dns.plist; do
   sed "s|__HOME__|$HOME|g" "$here/$plist" > "$tmp/$plist"
 done
 
-sudo cp "$tmp/com.hamsitech.webherd.lo0-alias.plist" /Library/LaunchDaemons/
+# Clean up the com.hamsitech.* names from older installs. The old KeepAlive
+# dnsmasq holds 127.0.0.2:53, so it must be gone before the new daemon binds.
 sudo launchctl bootout system/com.hamsitech.webherd.lo0-alias 2>/dev/null || true
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.hamsitech.webherd.lo0-alias.plist 2>/dev/null || true
-sudo /sbin/ifconfig lo0 alias 127.0.0.2 up
-
-# Clean up the LaunchAgent flavor from older installs.
+sudo launchctl bootout system/com.hamsitech.webherd.emulator-dns 2>/dev/null || true
+sudo rm -f /Library/LaunchDaemons/com.hamsitech.webherd.lo0-alias.plist \
+           /Library/LaunchDaemons/com.hamsitech.webherd.emulator-dns.plist
 launchctl bootout "gui/$(id -u)/com.hamsitech.webherd.emulator-dns" 2>/dev/null || true
 rm -f "$HOME/Library/LaunchAgents/com.hamsitech.webherd.emulator-dns.plist"
-sudo cp "$tmp/com.hamsitech.webherd.emulator-dns.plist" /Library/LaunchDaemons/
-sudo launchctl bootout system/com.hamsitech.webherd.emulator-dns 2>/dev/null || true
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.hamsitech.webherd.emulator-dns.plist
+
+sudo cp "$tmp/tech.hamsi.webherd.lo0-alias.plist" /Library/LaunchDaemons/
+sudo launchctl bootout system/tech.hamsi.webherd.lo0-alias 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/tech.hamsi.webherd.lo0-alias.plist 2>/dev/null || true
+sudo /sbin/ifconfig lo0 alias 127.0.0.2 up
+
+sudo cp "$tmp/tech.hamsi.webherd.emulator-dns.plist" /Library/LaunchDaemons/
+sudo launchctl bootout system/tech.hamsi.webherd.emulator-dns 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/tech.hamsi.webherd.emulator-dns.plist
 
 sleep 1
 dig +short +time=2 anything.test @127.0.0.2

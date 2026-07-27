@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.hamsitech.webherd.emulator-dns</string>
-  <key>AssociatedBundleIdentifiers</key><array><string>com.hamsitech.webherd</string></array>
+  <string>tech.hamsi.webherd.emulator-dns</string>
+  <key>AssociatedBundleIdentifiers</key><array><string>tech.hamsi.webherd</string></array>
   <key>ProgramArguments</key>
   <array>
     <string>/Applications/webherd.app/Contents/MacOS/webherd-emulator-dns</string>

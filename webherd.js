@@ -26,7 +26,7 @@ const PORT_BLOCK_END = 3999;
 const LOGS_DIR = path.join(CONFIG_DIR, 'logs');
 const UI_HOST = 'webherd';
 const UI_PORT = 3098;
-const UI_PLIST = path.join(HOME, 'Library', 'LaunchAgents', 'com.hamsitech.webherd.ui.plist');
+const UI_PLIST = path.join(HOME, 'Library', 'LaunchAgents', 'tech.hamsi.webherd.ui.plist');
 
 const log = (msg) => console.log(`[webherd] ${msg}`);
 let serverMode = false;
@@ -1073,8 +1073,8 @@ const uiInstall = () => {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.hamsitech.webherd.ui</string>
-  <key>AssociatedBundleIdentifiers</key><array><string>com.hamsitech.webherd</string></array>
+  <key>Label</key><string>tech.hamsi.webherd.ui</string>
+  <key>AssociatedBundleIdentifiers</key><array><string>tech.hamsi.webherd</string></array>
   <key>ProgramArguments</key>
   <array>
     <string>${wrapper}</string>
@@ -1094,7 +1094,7 @@ const uiInstall = () => {
   fs.mkdirSync(path.dirname(UI_PLIST), { recursive: true });
   fs.writeFileSync(UI_PLIST, plist);
   const uid = spawnSync('id', ['-u'], { encoding: 'utf8' }).stdout.trim();
-  spawnSync('launchctl', ['bootout', `gui/${uid}/com.hamsitech.webherd.ui`]);
+  spawnSync('launchctl', ['bootout', `gui/${uid}/tech.hamsi.webherd.ui`]);
   const boot = spawnSync('launchctl', ['bootstrap', `gui/${uid}`, UI_PLIST], { encoding: 'utf8' });
   if (boot.status !== 0) fail(`launchctl bootstrap failed:\n${boot.stderr}`);
   ensureProxy(UI_HOST, UI_PORT, false);
