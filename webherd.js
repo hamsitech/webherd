@@ -1100,7 +1100,18 @@ const uiInstall = () => {
   spawnSync('launchctl', ['bootout', `gui/${uid}/com.hamsitech.webherd.ui`]);
   fs.rmSync(path.join(HOME, 'Library', 'LaunchAgents', 'com.hamsitech.webherd.ui.plist'), { force: true });
   spawnSync('launchctl', ['bootout', `gui/${uid}/tech.hamsi.webherd.ui`]);
-  const boot = spawnSync('launchctl', ['bootstrap', `gui/${uid}`, UI_PLIST], { encoding: 'utf8' });
+  // bootout returns before teardown finishes; bootstrapping the same label too
+  // early fails with EIO. Wait for the job to vanish, then retry a few times.
+  for (let i = 0; i < 20; i++) {
+    if (spawnSync('launchctl', ['print', `gui/${uid}/tech.hamsi.webherd.ui`]).status !== 0) break;
+    spawnSync('sleep', ['0.25']);
+  }
+  let boot;
+  for (let i = 0; i < 3; i++) {
+    boot = spawnSync('launchctl', ['bootstrap', `gui/${uid}`, UI_PLIST], { encoding: 'utf8' });
+    if (boot.status === 0) break;
+    spawnSync('sleep', ['1']);
+  }
   if (boot.status !== 0) fail(`launchctl bootstrap failed:\n${boot.stderr}`);
   ensureProxy(UI_HOST, UI_PORT, false);
   log(`dashboard installed — http://${UI_HOST}.test`);
