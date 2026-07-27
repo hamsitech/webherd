@@ -40,15 +40,6 @@ for plist in tech.hamsi.webherd.lo0-alias.plist tech.hamsi.webherd.emulator-dns.
   sed "s|__HOME__|$HOME|g" "$here/$plist" > "$tmp/$plist"
 done
 
-# Clean up the com.hamsitech.* names from older installs. The old KeepAlive
-# dnsmasq holds 127.0.0.2:53, so it must be gone before the new daemon binds.
-sudo launchctl bootout system/com.hamsitech.webherd.lo0-alias 2>/dev/null || true
-sudo launchctl bootout system/com.hamsitech.webherd.emulator-dns 2>/dev/null || true
-sudo rm -f /Library/LaunchDaemons/com.hamsitech.webherd.lo0-alias.plist \
-           /Library/LaunchDaemons/com.hamsitech.webherd.emulator-dns.plist
-launchctl bootout "gui/$(id -u)/com.hamsitech.webherd.emulator-dns" 2>/dev/null || true
-rm -f "$HOME/Library/LaunchAgents/com.hamsitech.webherd.emulator-dns.plist"
-
 sudo cp "$tmp/tech.hamsi.webherd.lo0-alias.plist" /Library/LaunchDaemons/
 sudo launchctl bootout system/tech.hamsi.webherd.lo0-alias 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/tech.hamsi.webherd.lo0-alias.plist 2>/dev/null || true

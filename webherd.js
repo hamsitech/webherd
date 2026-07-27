@@ -1096,9 +1096,6 @@ const uiInstall = () => {
   fs.mkdirSync(path.dirname(UI_PLIST), { recursive: true });
   fs.writeFileSync(UI_PLIST, plist);
   const uid = spawnSync('id', ['-u'], { encoding: 'utf8' }).stdout.trim();
-  // Clean up the com.hamsitech.* name from older installs.
-  spawnSync('launchctl', ['bootout', `gui/${uid}/com.hamsitech.webherd.ui`]);
-  fs.rmSync(path.join(HOME, 'Library', 'LaunchAgents', 'com.hamsitech.webherd.ui.plist'), { force: true });
   spawnSync('launchctl', ['bootout', `gui/${uid}/tech.hamsi.webherd.ui`]);
   // bootout returns before teardown finishes; bootstrapping the same label too
   // early fails with EIO. Wait for the job to vanish, then retry a few times.
