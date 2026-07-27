@@ -1065,6 +1065,8 @@ const uiInstall = () => {
     const build = spawnSync('bash', [path.join(__dirname, 'app', 'install.sh')], { encoding: 'utf8' });
     if (build.status !== 0) fail(`app bundle build failed:\n${build.stderr || build.stdout}`);
   }
+  // Refresh the installed Info.plist so bundle-id changes reach existing installs.
+  fs.copyFileSync(path.join(__dirname, 'app', 'Info.plist'), '/Applications/webherd.app/Contents/Info.plist');
   fs.mkdirSync(wrapperDir, { recursive: true });
   fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${__filename}" ui-server\n`, { mode: 0o755 });
   spawnSync('codesign', ['-s', '-', '--force', wrapper]);
@@ -1094,6 +1096,9 @@ const uiInstall = () => {
   fs.mkdirSync(path.dirname(UI_PLIST), { recursive: true });
   fs.writeFileSync(UI_PLIST, plist);
   const uid = spawnSync('id', ['-u'], { encoding: 'utf8' }).stdout.trim();
+  // Clean up the com.hamsitech.* name from older installs.
+  spawnSync('launchctl', ['bootout', `gui/${uid}/com.hamsitech.webherd.ui`]);
+  fs.rmSync(path.join(HOME, 'Library', 'LaunchAgents', 'com.hamsitech.webherd.ui.plist'), { force: true });
   spawnSync('launchctl', ['bootout', `gui/${uid}/tech.hamsi.webherd.ui`]);
   const boot = spawnSync('launchctl', ['bootstrap', `gui/${uid}`, UI_PLIST], { encoding: 'utf8' });
   if (boot.status !== 0) fail(`launchctl bootstrap failed:\n${boot.stderr}`);
